@@ -1,0 +1,41 @@
+package com.finapp.di
+
+import android.content.Context
+import androidx.room.Room
+import com.finapp.data.db.AppDatabase
+import com.finapp.data.db.CategoriaDao
+import com.finapp.data.db.ConfiguracaoPerfilDao
+import com.finapp.data.db.TransacaoDao
+import com.finapp.data.db.TransacaoRecorrenteDao
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+
+@Module
+@InstallIn(SingletonComponent::class)
+object DatabaseModule {
+
+    @Provides
+    @Singleton
+    fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
+        Room.databaseBuilder(context, AppDatabase::class.java, AppDatabase.NOME)
+            .addMigrations(AppDatabase.MIGRACAO_1_2)
+            .build()
+
+    @Provides
+    fun provideTransacaoDao(db: AppDatabase): TransacaoDao = db.transacaoDao()
+
+    @Provides
+    fun provideCategoriaDao(db: AppDatabase): CategoriaDao = db.categoriaDao()
+
+    @Provides
+    fun provideConfiguracaoPerfilDao(db: AppDatabase): ConfiguracaoPerfilDao =
+        db.configuracaoPerfilDao()
+
+    @Provides
+    fun provideTransacaoRecorrenteDao(db: AppDatabase): TransacaoRecorrenteDao =
+        db.transacaoRecorrenteDao()
+}
