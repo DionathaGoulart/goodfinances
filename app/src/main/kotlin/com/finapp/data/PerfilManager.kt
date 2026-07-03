@@ -39,7 +39,7 @@ class PerfilManager @Inject constructor(
     val perfilFoiEscolhido: StateFlow<Boolean> = _perfilFoiEscolhido.asStateFlow()
 
     fun mudarPerfil(perfil: Perfil) {
-        require(perfil in Perfil.PRINCIPAIS) { "Perfil ${perfil.name} não é selecionável" }
+        require(perfil in Perfil.SELECIONAVEIS) { "Perfil ${perfil.name} não é selecionável" }
         prefs.edit { putString(CHAVE_PERFIL, perfil.name) }
         _perfilAtivo.value = perfil
         _perfilFoiEscolhido.value = true

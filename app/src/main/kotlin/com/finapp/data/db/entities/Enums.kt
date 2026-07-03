@@ -17,14 +17,20 @@ enum class Perfil(val rotulo: String, val descricao: String) {
 
     /** Sub-contextos de dados do MEI (abas Pessoal/Negócio) — não selecionáveis. */
     MEI_PESSOAL("MEI · Pessoal", "Finanças pessoais do MEI"),
-    MEI_NEGOCIO("MEI · Negócio", "Finanças do negócio do MEI");
+    MEI_NEGOCIO("MEI · Negócio", "Finanças do negócio do MEI"),
+
+    /** Carteira compartilhada da Casa — sincronizada entre os membros. */
+    CASA("Casa", "Compartilhada entre os membros");
 
     companion object {
-        /** Perfis que o usuário pode escolher na seleção. */
+        /** Perfis oferecidos na seleção inicial. */
         val PRINCIPAIS = listOf(PESSOA_FISICA, MEI, CNPJ)
 
+        /** Perfis que o usuário pode ativar (CASA só aparece quando há uma casa). */
+        val SELECIONAVEIS = PRINCIPAIS + CASA
+
         /** Baldes que de fato guardam dados (MEI se divide em Pessoal/Negócio). */
-        val BALDES_DADOS = listOf(PESSOA_FISICA, MEI_PESSOAL, MEI_NEGOCIO, CNPJ)
+        val BALDES_DADOS = listOf(PESSOA_FISICA, MEI_PESSOAL, MEI_NEGOCIO, CNPJ, CASA)
     }
 }
 
