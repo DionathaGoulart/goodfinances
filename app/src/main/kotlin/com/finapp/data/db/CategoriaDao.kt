@@ -25,22 +25,27 @@ interface CategoriaDao {
     @Delete
     suspend fun deletar(categoria: Categoria)
 
-    @Query("SELECT * FROM Categoria WHERE perfil = :perfil ORDER BY nome")
+    @Query("SELECT * FROM Categoria WHERE perfil = :perfil AND deletado = 0 ORDER BY nome")
     fun observarTodas(perfil: Perfil): Flow<List<Categoria>>
 
     /** Categorias ativas de um tipo — usadas no dropdown de nova transação. */
     @Query(
         """
         SELECT * FROM Categoria
-        WHERE perfil = :perfil AND tipo = :tipo AND arquivada = 0
+        WHERE perfil = :perfil AND deletado = 0 AND tipo = :tipo AND arquivada = 0
         ORDER BY nome
         """
     )
     fun observarAtivasPorTipo(perfil: Perfil, tipo: TipoTransacao): Flow<List<Categoria>>
 
+    /** Conta TODAS (inclusive tombstones) — controla o seed único das padrão. */
     @Query("SELECT COUNT(*) FROM Categoria WHERE perfil = :perfil")
     suspend fun contar(perfil: Perfil): Int
 
-    @Query("SELECT * FROM Categoria WHERE perfil = :perfil")
+    @Query("SELECT * FROM Categoria WHERE perfil = :perfil AND deletado = 0")
     suspend fun listarTodas(perfil: Perfil): List<Categoria>
+
+    /** Todos os uuids do perfil, INCLUSIVE tombstones — dedup de importação. */
+    @Query("SELECT uuid FROM Categoria WHERE perfil = :perfil")
+    suspend fun listarUuids(perfil: Perfil): List<String>
 }

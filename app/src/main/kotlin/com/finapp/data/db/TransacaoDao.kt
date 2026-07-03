@@ -28,8 +28,12 @@ interface TransacaoDao {
     @Insert
     suspend fun inserirTodas(transacoes: List<Transacao>)
 
-    @Query("SELECT * FROM Transacao WHERE perfil = :perfil")
+    @Query("SELECT * FROM Transacao WHERE perfil = :perfil AND deletado = 0")
     suspend fun listarTodas(perfil: Perfil): List<Transacao>
+
+    /** Todos os uuids do perfil, INCLUSIVE tombstones — dedup de importação. */
+    @Query("SELECT uuid FROM Transacao WHERE perfil = :perfil")
+    suspend fun listarUuids(perfil: Perfil): List<String>
 
     @Update
     suspend fun atualizar(transacao: Transacao)
@@ -45,25 +49,35 @@ interface TransacaoDao {
 
     // ---------- Listagens (Flow = atualiza a UI em tempo real) ----------
 
-    @Query("SELECT * FROM Transacao WHERE perfil = :perfil ORDER BY data DESC, id DESC")
+    @Query(
+        """
+        SELECT * FROM Transacao WHERE perfil = :perfil AND deletado = 0
+        ORDER BY data DESC, id DESC
+        """
+    )
     fun observarTodas(perfil: Perfil): Flow<List<Transacao>>
 
     @Query(
         """
         SELECT * FROM Transacao
-        WHERE perfil = :perfil AND data BETWEEN :inicio AND :fim
+        WHERE perfil = :perfil AND deletado = 0 AND data BETWEEN :inicio AND :fim
         ORDER BY data DESC, id DESC
         """
     )
     fun observarPeriodo(perfil: Perfil, inicio: LocalDate, fim: LocalDate): Flow<List<Transacao>>
 
-    @Query("SELECT * FROM Transacao WHERE perfil = :perfil ORDER BY data DESC, id DESC LIMIT :limite")
+    @Query(
+        """
+        SELECT * FROM Transacao WHERE perfil = :perfil AND deletado = 0
+        ORDER BY data DESC, id DESC LIMIT :limite
+        """
+    )
     fun observarUltimas(perfil: Perfil, limite: Int = 10): Flow<List<Transacao>>
 
     @Query(
         """
         SELECT * FROM Transacao
-        WHERE perfil = :perfil AND descricao LIKE '%' || :termo || '%'
+        WHERE perfil = :perfil AND deletado = 0 AND descricao LIKE '%' || :termo || '%'
         ORDER BY data DESC, id DESC
         """
     )
@@ -75,7 +89,7 @@ interface TransacaoDao {
     @Query(
         """
         SELECT COALESCE(SUM(CASE WHEN tipo = 'GANHO' THEN valor ELSE -valor END), 0)
-        FROM Transacao WHERE perfil = :perfil
+        FROM Transacao WHERE perfil = :perfil AND deletado = 0
         """
     )
     fun observarSaldoTotal(perfil: Perfil): Flow<Long>
@@ -83,7 +97,8 @@ interface TransacaoDao {
     @Query(
         """
         SELECT COALESCE(SUM(valor), 0) FROM Transacao
-        WHERE perfil = :perfil AND tipo = :tipo AND data BETWEEN :inicio AND :fim
+        WHERE perfil = :perfil AND deletado = 0
+            AND tipo = :tipo AND data BETWEEN :inicio AND :fim
         """
     )
     fun observarSomaPorTipo(
@@ -96,7 +111,8 @@ interface TransacaoDao {
     @Query(
         """
         SELECT categoria, COALESCE(SUM(valor), 0) AS total FROM Transacao
-        WHERE perfil = :perfil AND tipo = :tipo AND data BETWEEN :inicio AND :fim
+        WHERE perfil = :perfil AND deletado = 0
+            AND tipo = :tipo AND data BETWEEN :inicio AND :fim
         GROUP BY categoria ORDER BY total DESC
         """
     )
@@ -110,7 +126,8 @@ interface TransacaoDao {
     @Query(
         """
         SELECT COALESCE(SUM(valor), 0) FROM Transacao
-        WHERE perfil = :perfil AND tipo = :tipo AND data BETWEEN :inicio AND :fim
+        WHERE perfil = :perfil AND deletado = 0
+            AND tipo = :tipo AND data BETWEEN :inicio AND :fim
         """
     )
     suspend fun somarPorTipo(
@@ -123,9 +140,14 @@ interface TransacaoDao {
     /** Mantém o histórico coerente quando uma categoria é renomeada. */
     @Query(
         """
-        UPDATE Transacao SET categoria = :novoNome
+        UPDATE Transacao SET categoria = :novoNome, atualizadoEm = :agora
         WHERE categoria = :nomeAntigo AND perfil = :perfil
         """
     )
-    suspend fun renomearCategoria(perfil: Perfil, nomeAntigo: String, novoNome: String)
+    suspend fun renomearCategoria(
+        perfil: Perfil,
+        nomeAntigo: String,
+        novoNome: String,
+        agora: Long
+    )
 }

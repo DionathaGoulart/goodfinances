@@ -7,6 +7,7 @@ import com.finapp.data.db.entities.Transacao
 import org.json.JSONObject
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToLong
@@ -91,6 +92,8 @@ class ParserImportacao @Inject constructor() {
             val centavos = (obj.getDouble("valor") * 100).roundToLong()
             require(centavos > 0) { "transação ${i + 1} com valor inválido" }
             Transacao(
+                // Preserva a identidade global se o arquivo veio do próprio app
+                uuid = obj.optString("uuid").ifBlank { UUID.randomUUID().toString() },
                 data = parseData(obj.getString("data"), i + 1),
                 descricao = obj.optString("descricao", ""),
                 valor = centavos,
@@ -105,6 +108,7 @@ class ParserImportacao @Inject constructor() {
             (0 until arrCategorias.length()).map { i ->
                 val obj = arrCategorias.getJSONObject(i)
                 Categoria(
+                    uuid = obj.optString("uuid").ifBlank { UUID.randomUUID().toString() },
                     nome = obj.getString("nome"),
                     tipo = parseTipo(obj.getString("tipo")),
                     cor = obj.optString("cor", "#6B7280"),

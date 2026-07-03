@@ -17,7 +17,7 @@ import com.finapp.data.db.entities.TransacaoRecorrente
         ConfiguracaoPerfil::class,
         TransacaoRecorrente::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -93,6 +93,103 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS " +
                         "index_TransacaoRecorrente_perfil_ativa_proximoLancamento " +
                         "ON TransacaoRecorrente (perfil, ativa, proximoLancamento)"
+                )
+            }
+        }
+
+        /**
+         * v2 -> v3: prepara o modelo para sincronização entre aparelhos:
+         * uuid (identidade global), atualizadoEm (última edição vence) e
+         * deletado (tombstone). Uuids das linhas existentes são gerados
+         * com randomblob — únicos o suficiente para identidade global.
+         */
+        val MIGRACAO_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val agora = System.currentTimeMillis()
+
+                // Transacao
+                db.execSQL(
+                    "CREATE TABLE Transacao_v3 (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "uuid TEXT NOT NULL, valor INTEGER NOT NULL, tipo TEXT NOT NULL, " +
+                        "categoria TEXT NOT NULL, descricao TEXT NOT NULL, " +
+                        "data INTEGER NOT NULL, perfil TEXT NOT NULL, " +
+                        "atualizadoEm INTEGER NOT NULL, deletado INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "INSERT INTO Transacao_v3 (id, uuid, valor, tipo, categoria, descricao, " +
+                        "data, perfil, atualizadoEm, deletado) " +
+                        "SELECT id, lower(hex(randomblob(16))), valor, tipo, categoria, " +
+                        "descricao, data, perfil, $agora, 0 FROM Transacao"
+                )
+                db.execSQL("DROP TABLE Transacao")
+                db.execSQL("ALTER TABLE Transacao_v3 RENAME TO Transacao")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_Transacao_perfil_data " +
+                        "ON Transacao (perfil, data)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_Transacao_perfil_tipo " +
+                        "ON Transacao (perfil, tipo)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_Transacao_uuid " +
+                        "ON Transacao (uuid)"
+                )
+
+                // Categoria
+                db.execSQL(
+                    "CREATE TABLE Categoria_v3 (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "uuid TEXT NOT NULL, nome TEXT NOT NULL, tipo TEXT NOT NULL, " +
+                        "cor TEXT NOT NULL, perfil TEXT NOT NULL, arquivada INTEGER NOT NULL, " +
+                        "atualizadoEm INTEGER NOT NULL, deletado INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "INSERT INTO Categoria_v3 (id, uuid, nome, tipo, cor, perfil, arquivada, " +
+                        "atualizadoEm, deletado) " +
+                        "SELECT id, lower(hex(randomblob(16))), nome, tipo, cor, perfil, " +
+                        "arquivada, $agora, 0 FROM Categoria"
+                )
+                db.execSQL("DROP TABLE Categoria")
+                db.execSQL("ALTER TABLE Categoria_v3 RENAME TO Categoria")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_Categoria_perfil_tipo_arquivada " +
+                        "ON Categoria (perfil, tipo, arquivada)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_Categoria_uuid " +
+                        "ON Categoria (uuid)"
+                )
+
+                // TransacaoRecorrente
+                db.execSQL(
+                    "CREATE TABLE TransacaoRecorrente_v3 (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "uuid TEXT NOT NULL, valor INTEGER NOT NULL, tipo TEXT NOT NULL, " +
+                        "categoria TEXT NOT NULL, descricao TEXT NOT NULL, " +
+                        "frequencia TEXT NOT NULL, proximoLancamento INTEGER NOT NULL, " +
+                        "perfil TEXT NOT NULL, ativa INTEGER NOT NULL, " +
+                        "atualizadoEm INTEGER NOT NULL, deletado INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "INSERT INTO TransacaoRecorrente_v3 (id, uuid, valor, tipo, categoria, " +
+                        "descricao, frequencia, proximoLancamento, perfil, ativa, " +
+                        "atualizadoEm, deletado) " +
+                        "SELECT id, lower(hex(randomblob(16))), valor, tipo, categoria, " +
+                        "descricao, frequencia, proximoLancamento, perfil, ativa, $agora, 0 " +
+                        "FROM TransacaoRecorrente"
+                )
+                db.execSQL("DROP TABLE TransacaoRecorrente")
+                db.execSQL("ALTER TABLE TransacaoRecorrente_v3 RENAME TO TransacaoRecorrente")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS " +
+                        "index_TransacaoRecorrente_perfil_ativa_proximoLancamento " +
+                        "ON TransacaoRecorrente (perfil, ativa, proximoLancamento)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_TransacaoRecorrente_uuid " +
+                        "ON TransacaoRecorrente (uuid)"
                 )
             }
         }

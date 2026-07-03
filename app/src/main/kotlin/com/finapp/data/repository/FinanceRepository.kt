@@ -30,14 +30,24 @@ class FinanceRepository @Inject constructor(
     private val transacaoRecorrenteDao: TransacaoRecorrenteDao
 ) {
 
+    private fun agora() = System.currentTimeMillis()
+
     // ---------- Transações ----------
 
     suspend fun inserirTransacao(transacao: Transacao): Long = transacaoDao.inserir(transacao)
 
-    suspend fun atualizarTransacao(transacao: Transacao) = transacaoDao.atualizar(transacao)
+    suspend fun atualizarTransacao(transacao: Transacao) =
+        transacaoDao.atualizar(transacao.copy(atualizadoEm = agora()))
 
-    suspend fun deletarTransacao(transacao: Transacao) = transacaoDao.deletar(transacao)
+    /** Deleção LÓGICA (tombstone) — necessária para propagar no sync. */
+    suspend fun deletarTransacao(transacao: Transacao) =
+        transacaoDao.atualizar(transacao.copy(deletado = true, atualizadoEm = agora()))
 
+    /** Desfaz uma deleção lógica (undo do swipe/modal). */
+    suspend fun restaurarTransacao(transacao: Transacao) =
+        transacaoDao.atualizar(transacao.copy(deletado = false, atualizadoEm = agora()))
+
+    /** Limpeza local definitiva (Configurações > Limpar Todos os Dados). */
     suspend fun deletarTodasTransacoes(perfil: Perfil) = transacaoDao.deletarTodas(perfil)
 
     suspend fun obterTransacao(id: Long): Transacao? = transacaoDao.obterPorId(id)
@@ -92,9 +102,12 @@ class FinanceRepository @Inject constructor(
 
     suspend fun inserirCategoria(categoria: Categoria): Long = categoriaDao.inserir(categoria)
 
-    suspend fun atualizarCategoria(categoria: Categoria) = categoriaDao.atualizar(categoria)
+    suspend fun atualizarCategoria(categoria: Categoria) =
+        categoriaDao.atualizar(categoria.copy(atualizadoEm = agora()))
 
-    suspend fun deletarCategoria(categoria: Categoria) = categoriaDao.deletar(categoria)
+    /** Deleção lógica (tombstone). */
+    suspend fun deletarCategoria(categoria: Categoria) =
+        categoriaDao.atualizar(categoria.copy(deletado = true, atualizadoEm = agora()))
 
     /** Cria as categorias padrão na primeira vez que o perfil é usado. */
     suspend fun garantirCategoriasPadrao(perfil: Perfil) {
@@ -108,10 +121,13 @@ class FinanceRepository @Inject constructor(
      * histórico de transações e para as recorrências.
      */
     suspend fun renomearCategoria(categoria: Categoria, novoNome: String, novaCor: String) {
-        categoriaDao.atualizar(categoria.copy(nome = novoNome, cor = novaCor))
+        val momento = agora()
+        categoriaDao.atualizar(categoria.copy(nome = novoNome, cor = novaCor, atualizadoEm = momento))
         if (novoNome != categoria.nome) {
-            transacaoDao.renomearCategoria(categoria.perfil, categoria.nome, novoNome)
-            transacaoRecorrenteDao.renomearCategoria(categoria.perfil, categoria.nome, novoNome)
+            transacaoDao.renomearCategoria(categoria.perfil, categoria.nome, novoNome, momento)
+            transacaoRecorrenteDao.renomearCategoria(
+                categoria.perfil, categoria.nome, novoNome, momento
+            )
         }
     }
 
@@ -137,22 +153,29 @@ class FinanceRepository @Inject constructor(
     ): Int {
         if (substituir) transacaoDao.deletarTodas(perfil)
 
-        // Categorias: insere apenas as que ainda não existem (nome + tipo)
+        // Categorias: insere apenas as que ainda não existem (nome+tipo ou uuid,
+        // considerando tombstones para não violar o índice único)
         val categoriasExistentes = categoriaDao.listarTodas(perfil)
+        val uuidsCategorias = categoriaDao.listarUuids(perfil).toHashSet()
         val categoriasNovas = categorias.filter { nova ->
-            categoriasExistentes.none {
-                it.nome.equals(nova.nome, ignoreCase = true) && it.tipo == nova.tipo
-            }
+            nova.uuid !in uuidsCategorias &&
+                categoriasExistentes.none {
+                    it.nome.equals(nova.nome, ignoreCase = true) && it.tipo == nova.tipo
+                }
         }.map { it.copy(id = 0, perfil = perfil) }
         if (categoriasNovas.isNotEmpty()) categoriaDao.inserirTodas(categoriasNovas)
 
-        // Transações: deduplicação por data + valor + categoria
+        // Transações: dedup por data + valor + categoria E por uuid
         val existentes = if (substituir) emptyList() else transacaoDao.listarTodas(perfil)
         val chavesExistentes = existentes
             .map { Triple(it.data, it.valor, it.categoria) }
             .toHashSet()
+        val uuidsExistentes = transacaoDao.listarUuids(perfil).toHashSet()
         val novas = transacoes
-            .filter { Triple(it.data, it.valor, it.categoria) !in chavesExistentes }
+            .filter {
+                it.uuid !in uuidsExistentes &&
+                    Triple(it.data, it.valor, it.categoria) !in chavesExistentes
+            }
             .map { it.copy(id = 0, perfil = perfil) }
         if (novas.isNotEmpty()) transacaoDao.inserirTodas(novas)
         return novas.size
@@ -178,10 +201,13 @@ class FinanceRepository @Inject constructor(
         transacaoRecorrenteDao.inserir(recorrente)
 
     suspend fun atualizarRecorrente(recorrente: TransacaoRecorrente) =
-        transacaoRecorrenteDao.atualizar(recorrente)
+        transacaoRecorrenteDao.atualizar(recorrente.copy(atualizadoEm = agora()))
 
+    /** Deleção lógica (tombstone). */
     suspend fun deletarRecorrente(recorrente: TransacaoRecorrente) =
-        transacaoRecorrenteDao.deletar(recorrente)
+        transacaoRecorrenteDao.atualizar(
+            recorrente.copy(deletado = true, atualizadoEm = agora())
+        )
 
     /**
      * Lança as transações recorrentes vencidas e reagenda cada uma
@@ -209,7 +235,9 @@ class FinanceRepository @Inject constructor(
                     Frequencia.ANUAL -> proxima.plusYears(1)
                 }
             }
-            transacaoRecorrenteDao.atualizar(recorrente.copy(proximoLancamento = proxima))
+            transacaoRecorrenteDao.atualizar(
+                recorrente.copy(proximoLancamento = proxima, atualizadoEm = agora())
+            )
         }
     }
 }

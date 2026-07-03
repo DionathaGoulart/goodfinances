@@ -22,21 +22,37 @@ interface TransacaoRecorrenteDao {
     @Delete
     suspend fun deletar(recorrente: TransacaoRecorrente)
 
-    @Query("SELECT * FROM TransacaoRecorrente WHERE perfil = :perfil AND ativa = 1 ORDER BY proximoLancamento")
+    @Query(
+        """
+        SELECT * FROM TransacaoRecorrente
+        WHERE perfil = :perfil AND deletado = 0 AND ativa = 1
+        ORDER BY proximoLancamento
+        """
+    )
     fun observarAtivas(perfil: Perfil): Flow<List<TransacaoRecorrente>>
 
-    @Query("SELECT * FROM TransacaoRecorrente WHERE perfil = :perfil AND ativa = 1")
+    @Query("SELECT * FROM TransacaoRecorrente WHERE perfil = :perfil AND deletado = 0 AND ativa = 1")
     suspend fun listarAtivas(perfil: Perfil): List<TransacaoRecorrente>
 
     @Query(
         """
-        UPDATE TransacaoRecorrente SET categoria = :novoNome
+        UPDATE TransacaoRecorrente SET categoria = :novoNome, atualizadoEm = :agora
         WHERE categoria = :nomeAntigo AND perfil = :perfil
         """
     )
-    suspend fun renomearCategoria(perfil: Perfil, nomeAntigo: String, novoNome: String)
+    suspend fun renomearCategoria(
+        perfil: Perfil,
+        nomeAntigo: String,
+        novoNome: String,
+        agora: Long
+    )
 
     /** Recorrências vencidas — devem gerar transações ao abrir o app. */
-    @Query("SELECT * FROM TransacaoRecorrente WHERE ativa = 1 AND proximoLancamento <= :hoje")
+    @Query(
+        """
+        SELECT * FROM TransacaoRecorrente
+        WHERE deletado = 0 AND ativa = 1 AND proximoLancamento <= :hoje
+        """
+    )
     suspend fun obterVencidas(hoje: LocalDate): List<TransacaoRecorrente>
 }

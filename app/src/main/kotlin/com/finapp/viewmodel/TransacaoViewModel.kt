@@ -176,7 +176,8 @@ class TransacaoViewModel @Inject constructor(
         val transacao = ultimaDeletada ?: return
         ultimaDeletada = null
         viewModelScope.launch {
-            runCatching { repository.inserirTransacao(transacao) }
+            // Deleção é lógica: restaurar = limpar o tombstone
+            runCatching { repository.restaurarTransacao(transacao) }
                 .onFailure { emitir("Erro ao restaurar transação") }
         }
     }
