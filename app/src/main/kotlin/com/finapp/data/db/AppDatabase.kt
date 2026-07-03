@@ -17,7 +17,7 @@ import com.finapp.data.db.entities.TransacaoRecorrente
         ConfiguracaoPerfil::class,
         TransacaoRecorrente::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -190,6 +190,41 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE UNIQUE INDEX IF NOT EXISTS index_TransacaoRecorrente_uuid " +
                         "ON TransacaoRecorrente (uuid)"
+                )
+            }
+        }
+
+        /** v3 -> v4: Transacao ganha criadoPor (quem lançou, no perfil Casa). */
+        val MIGRACAO_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE Transacao_v4 (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "uuid TEXT NOT NULL, valor INTEGER NOT NULL, tipo TEXT NOT NULL, " +
+                        "categoria TEXT NOT NULL, descricao TEXT NOT NULL, " +
+                        "data INTEGER NOT NULL, perfil TEXT NOT NULL, " +
+                        "atualizadoEm INTEGER NOT NULL, deletado INTEGER NOT NULL, " +
+                        "criadoPor TEXT NOT NULL)"
+                )
+                db.execSQL(
+                    "INSERT INTO Transacao_v4 (id, uuid, valor, tipo, categoria, descricao, " +
+                        "data, perfil, atualizadoEm, deletado, criadoPor) " +
+                        "SELECT id, uuid, valor, tipo, categoria, descricao, data, perfil, " +
+                        "atualizadoEm, deletado, '' FROM Transacao"
+                )
+                db.execSQL("DROP TABLE Transacao")
+                db.execSQL("ALTER TABLE Transacao_v4 RENAME TO Transacao")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_Transacao_perfil_data " +
+                        "ON Transacao (perfil, data)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_Transacao_perfil_tipo " +
+                        "ON Transacao (perfil, tipo)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_Transacao_uuid " +
+                        "ON Transacao (uuid)"
                 )
             }
         }
