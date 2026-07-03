@@ -28,5 +28,7 @@ data class Transacao(
     /** Última modificação (epoch millis) — "última edição vence" no sync. */
     val atualizadoEm: Long = System.currentTimeMillis(),
     /** Tombstone: deleção é lógica para se propagar entre aparelhos. */
-    val deletado: Boolean = false
+    val deletado: Boolean = false,
+    /** Nome de quem lançou (só preenchido no perfil Casa). */
+    val criadoPor: String = ""
 )

@@ -7,6 +7,7 @@ import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.io.BackupManager
 import com.finapp.data.repository.FinanceRepository
+import com.finapp.data.sync.CasaManager
 import com.finapp.utils.PeriodoFiltro
 import com.finapp.utils.fluxoDataAtual
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -27,8 +29,14 @@ import javax.inject.Inject
 class HomeViewModel @Inject constructor(
     private val repository: FinanceRepository,
     private val perfilManager: PerfilManager,
-    private val backupManager: BackupManager
+    private val backupManager: BackupManager,
+    casaManager: CasaManager
 ) : ViewModel() {
+
+    /** True quando o usuário está numa casa (mostra o indicador de sync). */
+    val casaConectada: StateFlow<Boolean> = casaManager.casa
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Perfil escolhido pelo usuário (define layout do dashboard, cor do FAB). */
     val perfil: StateFlow<Perfil> = perfilManager.perfilAtivo

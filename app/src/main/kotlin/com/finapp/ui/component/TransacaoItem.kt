@@ -82,8 +82,11 @@ fun TransacaoItem(
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1
             )
+            // No perfil Casa mostra quem lançou (primeiro nome)
+            val autor = transacao.criadoPor.substringBefore(' ')
             Text(
-                text = transacao.categoria,
+                text = if (autor.isBlank()) transacao.categoria
+                else "${transacao.categoria} · por $autor",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

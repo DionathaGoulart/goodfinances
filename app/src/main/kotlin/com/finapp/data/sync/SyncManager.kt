@@ -124,7 +124,8 @@ class SyncManager @Inject constructor(
                         "descricao" to t.descricao,
                         "data" to t.data.toEpochDay(),
                         "atualizadoEm" to t.atualizadoEm,
-                        "deletado" to t.deletado
+                        "deletado" to t.deletado,
+                        "criadoPor" to t.criadoPor
                     )
                 )
             }
@@ -178,7 +179,8 @@ class SyncManager @Inject constructor(
             data = LocalDate.ofEpochDay(doc.getLong("data") ?: return),
             perfil = Perfil.CASA,
             atualizadoEm = remotaAtualizadaEm,
-            deletado = doc.getBoolean("deletado") ?: false
+            deletado = doc.getBoolean("deletado") ?: false,
+            criadoPor = doc.getString("criadoPor") ?: ""
         )
         if (local == null) transacaoDao.inserir(transacao) else transacaoDao.atualizar(transacao)
     }

@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -66,6 +69,7 @@ fun HomeScreen(
     val ultimas by viewModel.ultimasTransacoes.collectAsStateWithLifecycle()
     val perfil by viewModel.perfil.collectAsStateWithLifecycle()
     val contextoMei by viewModel.contextoMei.collectAsStateWithLifecycle()
+    val casaConectada by viewModel.casaConectada.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val escopo = rememberCoroutineScope()
@@ -123,6 +127,18 @@ fun HomeScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
+                // No perfil Casa, nuvem indica que o sync está ativo
+                if (perfil == Perfil.CASA && casaConectada) {
+                    Icon(
+                        imageVector = Icons.Filled.CloudDone,
+                        contentDescription = "Sincronizando com a Casa",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .size(14.dp)
+                            .align(Alignment.CenterVertically)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
                 Text(
                     text = perfil.rotulo.uppercase(Formatadores.LOCALE_BR),
                     style = MaterialTheme.typography.labelSmall,

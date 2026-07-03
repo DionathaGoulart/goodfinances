@@ -10,6 +10,7 @@ import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.db.entities.TransacaoRecorrente
 import com.finapp.data.repository.FinanceRepository
+import com.finapp.data.sync.CasaManager
 import com.finapp.utils.Intervalo
 import com.finapp.utils.PeriodoFiltro
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,7 +32,8 @@ import javax.inject.Inject
 @HiltViewModel
 class TransacaoViewModel @Inject constructor(
     private val repository: FinanceRepository,
-    perfilManager: PerfilManager
+    perfilManager: PerfilManager,
+    private val casaManager: CasaManager
 ) : ViewModel() {
 
     /** Balde de dados efetivo (no MEI, acompanha a aba Pessoal/Negócio). */
@@ -117,6 +119,12 @@ class TransacaoViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
+            // No perfil Casa, registra quem lançou (aparece para os outros membros)
+            val autor = if (perfil.value == Perfil.CASA) {
+                casaManager.usuario.value?.nome.orEmpty()
+            } else {
+                ""
+            }
             runCatching {
                 repository.inserirTransacao(
                     Transacao(
@@ -125,7 +133,8 @@ class TransacaoViewModel @Inject constructor(
                         categoria = categoria,
                         descricao = descricao.trim(),
                         data = data,
-                        perfil = perfil.value
+                        perfil = perfil.value,
+                        criadoPor = autor
                     )
                 )
                 if (repetirMensalmente) {
