@@ -48,4 +48,17 @@ interface CategoriaDao {
     /** Todos os uuids do perfil, INCLUSIVE tombstones — dedup de importação. */
     @Query("SELECT uuid FROM Categoria WHERE perfil = :perfil")
     suspend fun listarUuids(perfil: Perfil): List<String>
+
+    // ---------- Sincronização (Casa) ----------
+
+    @Query("SELECT * FROM Categoria WHERE uuid = :uuid")
+    suspend fun obterPorUuid(uuid: String): Categoria?
+
+    /** Sinal de mudança para o push (inclui tombstones). */
+    @Query("SELECT COALESCE(MAX(atualizadoEm), 0) FROM Categoria WHERE perfil = :perfil")
+    fun observarUltimaModificacao(perfil: Perfil): Flow<Long>
+
+    /** Linhas modificadas desde a última marca de push (inclui tombstones). */
+    @Query("SELECT * FROM Categoria WHERE perfil = :perfil AND atualizadoEm > :desde")
+    suspend fun listarModificadas(perfil: Perfil, desde: Long): List<Categoria>
 }

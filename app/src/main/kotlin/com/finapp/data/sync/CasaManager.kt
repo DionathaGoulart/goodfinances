@@ -41,7 +41,8 @@ data class Casa(
  */
 @Singleton
 class CasaManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val repository: com.finapp.data.repository.FinanceRepository
 ) {
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseFirestore.getInstance()
@@ -117,6 +118,8 @@ class CasaManager @Inject constructor(
         )
         val ref = db.collection(COLECAO).add(dados).await()
         val casa = Casa(id = ref.id, codigoConvite = codigo, membros = listOf(uid))
+        // Só o criador semeia as categorias padrão; os demais recebem via sync
+        repository.semearCategoriasCasa()
         salvarCasa(casa)
         return casa
     }

@@ -35,6 +35,19 @@ interface TransacaoDao {
     @Query("SELECT uuid FROM Transacao WHERE perfil = :perfil")
     suspend fun listarUuids(perfil: Perfil): List<String>
 
+    // ---------- Sincronização (Casa) ----------
+
+    @Query("SELECT * FROM Transacao WHERE uuid = :uuid")
+    suspend fun obterPorUuid(uuid: String): Transacao?
+
+    /** Sinal de mudança para o push (inclui tombstones). */
+    @Query("SELECT COALESCE(MAX(atualizadoEm), 0) FROM Transacao WHERE perfil = :perfil")
+    fun observarUltimaModificacao(perfil: Perfil): Flow<Long>
+
+    /** Linhas modificadas desde a última marca de push (inclui tombstones). */
+    @Query("SELECT * FROM Transacao WHERE perfil = :perfil AND atualizadoEm > :desde")
+    suspend fun listarModificadas(perfil: Perfil, desde: Long): List<Transacao>
+
     @Update
     suspend fun atualizar(transacao: Transacao)
 
