@@ -36,7 +36,8 @@ MVVM + Repository, tudo reativo via Flow do Room (a UI nunca recarrega dados man
 
 ## Convenções
 
-- **Dinheiro é `Long` em CENTAVOS** em todo o app (banco v2, entidades, ViewModels, UI). Exibição sempre via `utils/Formatadores.moeda(Long)` (pt-BR). Cuidado com divisão inteira ao calcular proporções em gráficos (`toDouble()` primeiro).
+- **Dinheiro é `Long` em CENTAVOS** em todo o app (entidades, ViewModels, UI). Exibição sempre via `utils/Formatadores.moeda(Long)` (pt-BR). Cuidado com divisão inteira ao calcular proporções em gráficos (`toDouble()` primeiro).
+- **Modelo preparado para sync entre aparelhos** (banco v3): toda entidade tem `uuid` (identidade global, índice único), `atualizadoEm` (epoch millis, "última edição vence") e `deletado` (tombstone). Regras: **deletar = marcar `deletado = true`** via repository (nunca `@Delete` direto — exceto `deletarTodasTransacoes`, que é limpeza local); **toda escrita passa pelo repository**, que carimba `atualizadoEm`; **queries de leitura filtram `deletado = 0`**; undo = `restaurarTransacao` (limpa o tombstone, não re-insere). Import deduplica por uuid além da tripla data+valor+categoria.
 - Categorias nunca são deletadas: arquivar preserva histórico; renomear usa `FinanceRepository.renomearCategoria`, que propaga o novo nome para transações e recorrências (categoria é referenciada por nome, não por id).
 - Novos valores no enum `Perfil` não exigem migração (coluna TEXT), mas qualquer mudança nas entidades exige bump de versão + migração no `AppDatabase` (ver `MIGRACAO_1_2` como modelo).
 - Filtros de período usam `utils/PeriodoFiltro` (semana começa na segunda). Telas que dependem de "hoje" combinam com `utils/fluxoDataAtual()` (re-emite à meia-noite) — nunca capturar `LocalDate.now()` uma vez só num Flow de longa duração.

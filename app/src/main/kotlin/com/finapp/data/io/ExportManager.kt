@@ -68,6 +68,7 @@ class ExportManager @Inject constructor(
                 transacoes.forEach { t ->
                     arr.put(JSONObject().apply {
                         put("id", t.id)
+                        put("uuid", t.uuid)
                         put("data", t.data.toString())
                         put("descricao", t.descricao)
                         // Exporta em reais (decimal) para interoperabilidade
@@ -80,6 +81,7 @@ class ExportManager @Inject constructor(
             put("categorias", JSONArray().also { arr ->
                 categorias.forEach { c ->
                     arr.put(JSONObject().apply {
+                        put("uuid", c.uuid)
                         put("nome", c.nome)
                         put("tipo", c.tipo.name.lowercase())
                         put("cor", c.cor)

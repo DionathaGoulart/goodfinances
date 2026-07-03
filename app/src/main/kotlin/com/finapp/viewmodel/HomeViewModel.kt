@@ -105,8 +105,8 @@ class HomeViewModel @Inject constructor(
 
     fun restaurarTransacao(transacao: Transacao) {
         viewModelScope.launch {
-            // Reinsere preservando o id original
-            runCatching { repository.inserirTransacao(transacao) }
+            // Deleção é lógica: restaurar = limpar o tombstone
+            runCatching { repository.restaurarTransacao(transacao) }
                 .onFailure { _mensagens.emit("Erro ao restaurar transação") }
         }
     }
