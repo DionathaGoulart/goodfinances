@@ -111,8 +111,19 @@ class FinanceRepository @Inject constructor(
 
     /** Cria as categorias padrão na primeira vez que o perfil é usado. */
     suspend fun garantirCategoriasPadrao(perfil: Perfil) {
+        // A Casa NÃO semeia localmente: quem cria a casa semeia uma vez
+        // (semearCategoriasCasa) e os demais membros recebem via sync —
+        // senão cada aparelho criaria as suas e duplicaria tudo.
+        if (perfil == Perfil.CASA) return
         if (categoriaDao.contar(perfil) == 0) {
             categoriaDao.inserirTodas(CategoriasPadrao.para(perfil))
+        }
+    }
+
+    /** Semeia as categorias padrão da Casa — chamado apenas por quem CRIA a casa. */
+    suspend fun semearCategoriasCasa() {
+        if (categoriaDao.contar(Perfil.CASA) == 0) {
+            categoriaDao.inserirTodas(CategoriasPadrao.para(Perfil.CASA))
         }
     }
 
