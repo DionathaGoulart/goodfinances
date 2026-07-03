@@ -5,10 +5,13 @@ import androidx.core.content.edit
 import com.finapp.data.PerfilManager
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.repository.FinanceRepository
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.tasks.await
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -17,9 +20,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Backup automático semanal em JSON no armazenamento do app
- * (Android/data/com.finapp/files/backups — não precisa de permissão).
- * Mantém os 4 backups mais recentes.
+ * Backup automático semanal em JSON:
+ * - LOCAL: Android/data/com.finapp/files/backups (4 mais recentes por perfil)
+ * - NUVEM: doc privado em usuarios/{uid}/backups/{perfil} no Firestore,
+ *   quando o usuário está logado — protege contra perda do aparelho.
+ * O restore usa o que for mais novo entre local e nuvem.
  */
 @Singleton
 class BackupManager @Inject constructor(
@@ -30,6 +35,8 @@ class BackupManager @Inject constructor(
     private val importManager: ImportManager
 ) {
     private val prefs = context.getSharedPreferences("finapp_prefs", Context.MODE_PRIVATE)
+    private val auth = FirebaseAuth.getInstance()
+    private val nuvem = FirebaseFirestore.getInstance()
 
     private val _ativado = MutableStateFlow(prefs.getBoolean(CHAVE_ATIVADO, false))
     val ativado: StateFlow<Boolean> = _ativado.asStateFlow()
@@ -72,6 +79,7 @@ class BackupManager @Inject constructor(
             )
             diretorio.resolve("${prefixo(perfil)}$timestamp.json")
                 .writeText(json, Charsets.UTF_8)
+            subirParaNuvem(perfil, json)
             criados++
 
             // Mantém apenas os 4 mais recentes DESTE perfil
@@ -86,15 +94,25 @@ class BackupManager @Inject constructor(
     }
 
     /**
-     * Restaura o backup mais recente DO PERFIL ATIVO (mescla, sem apagar
-     * dados atuais). Retorna quantas transações foram restauradas.
+     * Restaura o backup mais recente DO PERFIL ATIVO — o mais novo entre
+     * o arquivo local e o da nuvem (mescla, sem apagar dados atuais).
+     * Retorna quantas transações foram restauradas.
      */
     suspend fun restaurarUltimo(): Int {
         val perfil = perfilManager.perfilDados.value
-        val arquivo = backupsDoPerfil(perfil).maxByOrNull { it.lastModified() }
-            ?: throw IllegalStateException("Nenhum backup do perfil ${perfil.rotulo}")
+        val local = backupsDoPerfil(perfil).maxByOrNull { it.lastModified() }
+        val daNuvem = baixarDaNuvem(perfil)
 
-        val dados = importManager.lerTexto(arquivo.readText(Charsets.UTF_8), perfil)
+        val json = when {
+            daNuvem != null && (local == null || daNuvem.criadoEm > local.lastModified()) ->
+                daNuvem.json
+            local != null -> local.readText(Charsets.UTF_8)
+            else -> throw IllegalStateException(
+                "Nenhum backup do perfil ${perfil.rotulo} (local ou na nuvem)"
+            )
+        }
+
+        val dados = importManager.lerTexto(json, perfil)
         return repository.importarDados(
             transacoes = dados.transacoes,
             categorias = dados.categorias,
@@ -102,6 +120,36 @@ class BackupManager @Inject constructor(
             substituir = false
         )
     }
+
+    // ---------- Nuvem ----------
+
+    /** Sobe o JSON para o doc privado do usuário. Fire-and-forget (fila offline). */
+    private fun subirParaNuvem(perfil: Perfil, json: String) {
+        val uid = auth.currentUser?.uid ?: return
+        // Documento do Firestore aguenta 1 MB — acima disso, fica só o local
+        if (json.length > LIMITE_NUVEM_BYTES) return
+        docNuvem(uid, perfil).set(
+            mapOf(
+                "json" to json,
+                "criadoEm" to System.currentTimeMillis()
+            )
+        )
+    }
+
+    private suspend fun baixarDaNuvem(perfil: Perfil): BackupNuvem? {
+        val uid = auth.currentUser?.uid ?: return null
+        return runCatching {
+            val doc = docNuvem(uid, perfil).get().await()
+            val json = doc.getString("json") ?: return null
+            BackupNuvem(json = json, criadoEm = doc.getLong("criadoEm") ?: 0L)
+        }.getOrNull()
+    }
+
+    private fun docNuvem(uid: String, perfil: Perfil) =
+        nuvem.collection("usuarios").document(uid)
+            .collection("backups").document(perfil.name.lowercase())
+
+    private data class BackupNuvem(val json: String, val criadoEm: Long)
 
     private fun prefixo(perfil: Perfil) = "FinanApp_backup_${perfil.name.lowercase()}_"
 
@@ -119,5 +167,6 @@ class BackupManager @Inject constructor(
         const val CHAVE_ATIVADO = "backup_automatico"
         const val CHAVE_ULTIMO = "backup_ultimo_millis"
         const val MAXIMO_BACKUPS = 4
+        const val LIMITE_NUVEM_BYTES = 900_000
     }
 }
