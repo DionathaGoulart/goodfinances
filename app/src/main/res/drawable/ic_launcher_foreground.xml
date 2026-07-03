@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Barras de gráfico simples (símbolo de finanças) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,62h8v16h-8z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M50,52h8v26h-8z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M66,40h8v38h-8z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,34l14,10l12,-8l14,10l-2,3l-12,-9l-12,8l-14,-10z" />
+</vector>
