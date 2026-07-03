@@ -540,7 +540,7 @@ fun ConfigScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "JSON semanal, mantém os últimos 4",
+                        text = "JSON semanal · local e na nuvem (quando conectado)",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
