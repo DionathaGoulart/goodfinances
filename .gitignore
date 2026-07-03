@@ -15,3 +15,6 @@ output-metadata.json
 key.properties
 *.jks
 *.keystore
+
+# Config do Firebase (contem ids do projeto)
+app/google-services.json

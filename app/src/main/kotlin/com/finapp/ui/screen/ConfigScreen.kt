@@ -1,5 +1,6 @@
 package com.finapp.ui.screen
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -35,6 +36,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -67,16 +69,23 @@ import com.finapp.utils.CorApp
 import com.finapp.utils.CoresCategorias
 import com.finapp.utils.EscalaFonte
 import com.finapp.utils.Formatadores
+import com.finapp.viewmodel.CasaViewModel
 import com.finapp.viewmodel.ConfigViewModel
 import java.time.LocalDate
 import java.util.Locale
 import kotlin.math.roundToLong
 
-/** Configurações: perfil, finanças, dados, aparência, sobre e limpeza. */
+/** Configurações: perfil, casa compartilhada, finanças, dados, aparência, sobre. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ConfigScreen(viewModel: ConfigViewModel = hiltViewModel()) {
+fun ConfigScreen(
+    viewModel: ConfigViewModel = hiltViewModel(),
+    casaViewModel: CasaViewModel = hiltViewModel()
+) {
     val perfil by viewModel.perfil.collectAsStateWithLifecycle()
+    val usuario by casaViewModel.usuario.collectAsStateWithLifecycle()
+    val casa by casaViewModel.casa.collectAsStateWithLifecycle()
+    val casaOcupado by casaViewModel.ocupado.collectAsStateWithLifecycle()
     val configuracao by viewModel.configuracao.collectAsStateWithLifecycle()
     val categorias by viewModel.categorias.collectAsStateWithLifecycle()
     val escalaFonte by viewModel.escalaFonte.collectAsStateWithLifecycle()
@@ -90,6 +99,11 @@ fun ConfigScreen(viewModel: ConfigViewModel = hiltViewModel()) {
 
     LaunchedEffect(Unit) {
         viewModel.mensagens.collect {
+            Toast.makeText(contexto, it, Toast.LENGTH_SHORT).show()
+        }
+    }
+    LaunchedEffect(Unit) {
+        casaViewModel.mensagens.collect {
             Toast.makeText(contexto, it, Toast.LENGTH_SHORT).show()
         }
     }
@@ -118,7 +132,10 @@ fun ConfigScreen(viewModel: ConfigViewModel = hiltViewModel()) {
         )
         Spacer(modifier = Modifier.height(8.dp))
 
-        Perfil.PRINCIPAIS.forEach { opcao ->
+        // A Casa só aparece como opção quando o usuário faz parte de uma
+        val opcoesPerfil =
+            if (casa != null) Perfil.PRINCIPAIS + Perfil.CASA else Perfil.PRINCIPAIS
+        opcoesPerfil.forEach { opcao ->
             val selecionado = perfil == opcao
             Card(
                 onClick = { if (!selecionado) viewModel.mudarPerfil(opcao) },
@@ -169,6 +186,146 @@ fun ConfigScreen(viewModel: ConfigViewModel = hiltViewModel()) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // ---------- Casa compartilhada ----------
+        Text(
+            text = "CASA COMPARTILHADA",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                val usuarioAtual = usuario
+                val casaAtual = casa
+
+                when {
+                    // Não logado
+                    usuarioAtual == null -> {
+                        Text(
+                            text = "Divida uma carteira com quem mora com você. " +
+                                "Entre com sua conta Google para criar ou entrar numa Casa.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { casaViewModel.entrarComGoogle(contexto) },
+                            enabled = !casaOcupado,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (casaOcupado) "Conectando..." else "Entrar com Google")
+                        }
+                    }
+
+                    // Logado, sem casa
+                    casaAtual == null -> {
+                        Text(
+                            text = "Conectado como ${usuarioAtual.email}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = casaViewModel::criarCasa,
+                            enabled = !casaOcupado,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Criar uma Casa")
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        var codigoDigitado by remember { mutableStateOf("") }
+                        OutlinedTextField(
+                            value = codigoDigitado,
+                            onValueChange = {
+                                codigoDigitado = it.uppercase(Locale.ROOT).take(6)
+                            },
+                            label = { Text("Código de convite") },
+                            placeholder = { Text("Ex: A3F7KP") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { casaViewModel.entrarNaCasa(codigoDigitado) },
+                            enabled = !casaOcupado,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Entrar com código")
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        TextButton(onClick = casaViewModel::sairDaConta) {
+                            Text("Sair da conta Google")
+                        }
+                    }
+
+                    // Logado e com casa
+                    else -> {
+                        Text(
+                            text = "Código de convite",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = casaAtual.codigoConvite,
+                            style = MaterialTheme.typography.displayLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "${casaAtual.membros.size} membro(s) · " +
+                                "conectado como ${usuarioAtual.email}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(
+                                        Intent.EXTRA_TEXT,
+                                        "Entre na minha Casa no FinanApp com o código: " +
+                                            casaAtual.codigoConvite
+                                    )
+                                }
+                                contexto.startActivity(
+                                    Intent.createChooser(intent, "Compartilhar código")
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Compartilhar código")
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Selecione o perfil \"Casa\" acima para usar a " +
+                                "carteira compartilhada.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row {
+                            TextButton(
+                                onClick = casaViewModel::sairDaCasa,
+                                enabled = !casaOcupado
+                            ) {
+                                Text("Sair da Casa")
+                            }
+                            TextButton(onClick = casaViewModel::sairDaConta) {
+                                Text("Sair da conta")
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(32.dp))
 
