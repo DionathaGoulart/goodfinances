@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
@@ -84,12 +85,23 @@ fun TransacaoItem(
             )
             // No perfil Casa mostra quem lançou (primeiro nome)
             val autor = transacao.criadoPor.substringBefore(' ')
-            Text(
-                text = if (autor.isBlank()) transacao.categoria
-                else "${transacao.categoria} · por $autor",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (autor.isBlank()) transacao.categoria
+                    else "${transacao.categoria} · por $autor",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (transacao.notaFiscal.isNotBlank()) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ReceiptLong,
+                        contentDescription = "Nota fiscal anexada",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
         }
 
         Column(horizontalAlignment = Alignment.End) {
@@ -113,6 +125,8 @@ fun TransacaoItem(
 /**
  * [TransacaoItem] com swipe para a esquerda para deletar.
  * O chamador mostra o snackbar de desfazer.
+ * [permitirSwipe] = false desabilita o swipe (ex: lançamento de outro
+ * membro da Casa — só o autor apaga).
  */
 @Composable
 fun TransacaoItemDismissivel(
@@ -120,8 +134,18 @@ fun TransacaoItemDismissivel(
     onDeletar: (Transacao) -> Unit,
     modifier: Modifier = Modifier,
     mostrarData: Boolean = true,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    permitirSwipe: Boolean = true
 ) {
+    if (!permitirSwipe) {
+        TransacaoItem(
+            transacao = transacao,
+            modifier = modifier,
+            mostrarData = mostrarData,
+            onClick = onClick
+        )
+        return
+    }
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { valor ->
             if (valor == SwipeToDismissBoxValue.EndToStart) {
