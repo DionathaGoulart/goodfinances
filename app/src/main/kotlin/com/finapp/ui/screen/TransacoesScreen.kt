@@ -1,6 +1,8 @@
 package com.finapp.ui.screen
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,11 +12,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DateRangePicker
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -43,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
 import com.finapp.ui.component.TransacaoItemDismissivel
 import com.finapp.ui.component.TransacaoModal
@@ -61,6 +67,12 @@ fun TransacoesScreen(viewModel: TransacaoViewModel = hiltViewModel()) {
     val transacoes by viewModel.transacoes.collectAsStateWithLifecycle()
     val filtro by viewModel.filtro.collectAsStateWithLifecycle()
     val busca by viewModel.busca.collectAsStateWithLifecycle()
+    val filtroTipo by viewModel.filtroTipo.collectAsStateWithLifecycle()
+    val filtroCategoria by viewModel.filtroCategoria.collectAsStateWithLifecycle()
+    val membrosCasa by viewModel.membrosCasa.collectAsStateWithLifecycle()
+    val filtroMembro by viewModel.filtroMembro.collectAsStateWithLifecycle()
+    val categoriasGanho by viewModel.categoriasGanho.collectAsStateWithLifecycle()
+    val categoriasGasto by viewModel.categoriasGasto.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val escopo = rememberCoroutineScope()
@@ -140,6 +152,95 @@ fun TransacoesScreen(viewModel: TransacaoViewModel = hiltViewModel()) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // ---------- Filtros por tipo e categoria ----------
+            var menuCategoriaAberto by remember { mutableStateOf(false) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = filtroTipo == TipoTransacao.GANHO,
+                    onClick = {
+                        viewModel.filtrarTipo(
+                            if (filtroTipo == TipoTransacao.GANHO) null
+                            else TipoTransacao.GANHO
+                        )
+                    },
+                    label = { Text("Ganhos") }
+                )
+                FilterChip(
+                    selected = filtroTipo == TipoTransacao.GASTO,
+                    onClick = {
+                        viewModel.filtrarTipo(
+                            if (filtroTipo == TipoTransacao.GASTO) null
+                            else TipoTransacao.GASTO
+                        )
+                    },
+                    label = { Text("Gastos") }
+                )
+                Box {
+                    FilterChip(
+                        selected = filtroCategoria != null,
+                        onClick = { menuCategoriaAberto = true },
+                        label = { Text(filtroCategoria ?: "Categoria") }
+                    )
+                    DropdownMenu(
+                        expanded = menuCategoriaAberto,
+                        onDismissRequest = { menuCategoriaAberto = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Todas") },
+                            onClick = {
+                                viewModel.filtrarCategoria(null)
+                                menuCategoriaAberto = false
+                            }
+                        )
+                        // Respeita o filtro de tipo ativo
+                        val nomes = when (filtroTipo) {
+                            TipoTransacao.GANHO -> categoriasGanho
+                            TipoTransacao.GASTO -> categoriasGasto
+                            null -> categoriasGanho + categoriasGasto
+                        }.map { it.nome }.distinct().sorted()
+                        nomes.forEach { nome ->
+                            DropdownMenuItem(
+                                text = { Text(nome) },
+                                onClick = {
+                                    viewModel.filtrarCategoria(nome)
+                                    menuCategoriaAberto = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ---------- Filtro por membro (só no perfil Casa) ----------
+            if (membrosCasa.size > 1) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = filtroMembro == null,
+                        onClick = { viewModel.filtrarMembro(null) },
+                        label = { Text("Todos") }
+                    )
+                    membrosCasa.forEach { nome ->
+                        FilterChip(
+                            selected = filtroMembro == nome,
+                            onClick = {
+                                viewModel.filtrarMembro(
+                                    if (filtroMembro == nome) null else nome
+                                )
+                            },
+                            label = { Text(nome.substringBefore(' ')) }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             // ---------- Lista agrupada por data ----------
             if (transacoes.isEmpty()) {
                 Column(
@@ -170,9 +271,11 @@ fun TransacoesScreen(viewModel: TransacaoViewModel = hiltViewModel()) {
                             )
                         }
                         items(doDia, key = { it.id }) { transacao ->
+                            val podeEditar = viewModel.podeEditar(transacao)
                             TransacaoItemDismissivel(
                                 transacao = transacao,
                                 mostrarData = false,
+                                permitirSwipe = podeEditar,
                                 onDeletar = { deletada ->
                                     viewModel.deletarTransacao(deletada)
                                     escopo.launch {
@@ -187,8 +290,16 @@ fun TransacoesScreen(viewModel: TransacaoViewModel = hiltViewModel()) {
                                     }
                                 },
                                 onClick = {
-                                    transacaoEmEdicao = transacao
-                                    modalAberto = true
+                                    if (podeEditar) {
+                                        transacaoEmEdicao = transacao
+                                        modalAberto = true
+                                    } else {
+                                        escopo.launch {
+                                            snackbarHostState.showSnackbar(
+                                                "Só quem lançou pode editar esta transação"
+                                            )
+                                        }
+                                    }
                                 }
                             )
                         }

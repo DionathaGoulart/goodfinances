@@ -1,6 +1,11 @@
 package com.finapp.ui.component
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,12 +17,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -38,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,12 +56,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
 import com.finapp.ui.theme.GreenPrimary
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
 import com.finapp.viewmodel.TransacaoViewModel
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -86,11 +96,72 @@ fun TransacaoModal(
     var descricao by remember { mutableStateOf(transacaoParaEditar?.descricao ?: "") }
     var data by remember { mutableStateOf(transacaoParaEditar?.data ?: LocalDate.now()) }
     var repetirMensalmente by remember { mutableStateOf(false) }
+    var parcelas by remember { mutableStateOf(1) }
+    var proLabore by remember { mutableStateOf(false) }
 
     var erroValor by remember { mutableStateOf<String?>(null) }
     var erroCategoria by remember { mutableStateOf<String?>(null) }
     var dropdownAberto by remember { mutableStateOf(false) }
     var datePickerAberto by remember { mutableStateOf(false) }
+
+    // ---------- Nota fiscal / comprovante (todos os contextos) ----------
+    val perfilDados by viewModel.perfil.collectAsStateWithLifecycle()
+    val notaOriginal = transacaoParaEditar?.notaFiscal ?: ""
+    var notaFiscal by remember { mutableStateOf(notaOriginal) }
+    var fotoPendente by remember { mutableStateOf<Pair<String, Uri>?>(null) }
+    val escopo = rememberCoroutineScope()
+
+    // Troca o anexo, apagando o arquivo anterior se ele foi criado agora
+    fun definirNota(nome: String) {
+        if (notaFiscal.isNotBlank() && notaFiscal != notaOriginal) {
+            viewModel.apagarNota(notaFiscal)
+        }
+        notaFiscal = nome
+    }
+
+    // Fechar sem salvar descarta o anexo recém-criado (evita arquivo órfão)
+    fun fecharDescartando() {
+        if (notaFiscal.isNotBlank() && notaFiscal != notaOriginal) {
+            viewModel.apagarNota(notaFiscal)
+        }
+        onFechar()
+    }
+
+    val anexarGaleria = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri?.let {
+            escopo.launch {
+                runCatching { viewModel.anexarNota(it) }.onSuccess(::definirNota)
+            }
+        }
+    }
+    val anexarArquivo = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            escopo.launch {
+                runCatching { viewModel.anexarNota(it) }.onSuccess(::definirNota)
+            }
+        }
+    }
+    val tirarFoto = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { sucesso ->
+        fotoPendente?.let { (nome, _) ->
+            if (sucesso) {
+                // Foto vira PDF; se a conversão falhar, fica a imagem mesmo
+                escopo.launch {
+                    val nomeFinal = runCatching { viewModel.converterFotoParaPdf(nome) }
+                        .getOrDefault(nome)
+                    definirNota(nomeFinal)
+                }
+            } else {
+                viewModel.apagarNota(nome)
+            }
+        }
+        fotoPendente = null
+    }
 
     val categorias by remember(tipo) {
         if (tipo == TipoTransacao.GANHO) viewModel.categoriasGanho else viewModel.categoriasGasto
@@ -114,7 +185,7 @@ fun TransacaoModal(
     val corAcento = if (tipo == TipoTransacao.GANHO) GreenPrimary else RedExpense
 
     ModalBottomSheet(
-        onDismissRequest = onFechar,
+        onDismissRequest = ::fecharDescartando,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface
     ) {
@@ -135,7 +206,7 @@ fun TransacaoModal(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = onFechar) {
+                IconButton(onClick = ::fecharDescartando) {
                     Icon(imageVector = Icons.Filled.Close, contentDescription = "Fechar")
                 }
             }
@@ -267,8 +338,144 @@ fun TransacaoModal(
                 }
             )
 
-            // ---------- Repetir mensalmente (só para nova transação) ----------
-            if (!edicao) {
+            // ---------- Nota fiscal / comprovante (todos os contextos) ----------
+            run {
+                Spacer(modifier = Modifier.height(12.dp))
+                if (notaFiscal.isBlank()) {
+                    Text(
+                        text = "Nota fiscal ou comprovante (opcional)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val destino = viewModel.criarDestinoFoto()
+                                fotoPendente = destino
+                                tirarFoto.launch(destino.second)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Câmera")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                anexarGaleria.launch(
+                                    PickVisualMediaRequest(
+                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                )
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Galeria")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                anexarArquivo.launch(arrayOf("image/*", "application/pdf"))
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("PDF")
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ReceiptLong,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = " Nota fiscal anexada",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { viewModel.abrirNota(notaFiscal) }) {
+                            Text("Ver")
+                        }
+                        TextButton(onClick = { definirNota("") }) {
+                            Text("Remover")
+                        }
+                    }
+                }
+            }
+
+            // ---------- Parcelamento (só gasto novo) ----------
+            if (!edicao && tipo == TipoTransacao.GASTO) {
+                Spacer(modifier = Modifier.height(8.dp))
+                var menuParcelasAberto by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Parcelamento",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box {
+                        OutlinedButton(onClick = { menuParcelasAberto = true }) {
+                            Text(if (parcelas == 1) "À vista" else "${parcelas}x")
+                        }
+                        DropdownMenu(
+                            expanded = menuParcelasAberto,
+                            onDismissRequest = { menuParcelasAberto = false }
+                        ) {
+                            (1..12).forEach { n ->
+                                DropdownMenuItem(
+                                    text = { Text(if (n == 1) "À vista" else "${n}x") },
+                                    onClick = {
+                                        parcelas = n
+                                        menuParcelasAberto = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                if (parcelas > 1) {
+                    Text(
+                        text = "Serão criados $parcelas lançamentos mensais " +
+                            "com o valor informado (valor de cada parcela).",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // ---------- Pró-labore (modo misto, aba Empresa, gasto novo) ----------
+            if (!edicao && perfilDados == Perfil.MEI_NEGOCIO &&
+                tipo == TipoTransacao.GASTO && parcelas == 1
+            ) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = proLabore,
+                        onCheckedChange = { proLabore = it }
+                    )
+                    Text(
+                        text = "Pró-labore: lançar também como ganho no Pessoal",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // ---------- Repetir mensalmente (só para nova transação à vista) ----------
+            if (!edicao && parcelas == 1) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -294,7 +501,7 @@ fun TransacaoModal(
                     onClick = {
                         val transacao = transacaoParaEditar!!
                         onDeletar?.invoke(transacao) ?: viewModel.deletarTransacao(transacao)
-                        onFechar()
+                        fecharDescartando()
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = RedExpense)
@@ -327,9 +534,14 @@ fun TransacaoModal(
                                         tipo = tipo,
                                         categoria = categoriaFinal,
                                         descricao = descricao.trim(),
-                                        data = data
+                                        data = data,
+                                        notaFiscal = notaFiscal
                                     )
                                 )
+                                // Nota substituída/removida: apaga o arquivo antigo
+                                if (notaOriginal.isNotBlank() && notaOriginal != notaFiscal) {
+                                    viewModel.apagarNota(notaOriginal)
+                                }
                             } else {
                                 viewModel.adicionarTransacao(
                                     valorCentavos = valorCentavos,
@@ -337,7 +549,10 @@ fun TransacaoModal(
                                     categoria = categoriaFinal,
                                     descricao = descricao,
                                     data = data,
-                                    repetirMensalmente = repetirMensalmente
+                                    repetirMensalmente = repetirMensalmente,
+                                    notaFiscal = notaFiscal,
+                                    parcelas = parcelas,
+                                    lancarProLaborePessoal = proLabore
                                 )
                             }
                             onFechar()
