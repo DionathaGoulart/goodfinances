@@ -11,7 +11,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Preferências de aparência (tamanho de fonte e cor primária), persistidas. */
+/**
+ * Preferências de aparência (tamanho de fonte e cores do tema), persistidas.
+ * O tema tem duas cores: uma para o contexto pessoal e outra para o de
+ * empresa — a MainActivity escolhe pela `PerfilManager.perfilDados`.
+ */
 @Singleton
 class AparenciaManager @Inject constructor(
     @ApplicationContext context: Context
@@ -23,19 +27,31 @@ class AparenciaManager @Inject constructor(
     )
     val escalaFonte: StateFlow<EscalaFonte> = _escalaFonte.asStateFlow()
 
-    private val _corPrimaria = MutableStateFlow(
-        lerEnum(CHAVE_COR, CorApp.VERDE, CorApp::valueOf)
+    // CHAVE_COR_PESSOAL lê a chave antiga "cor_primaria" — preferência
+    // de quem já usava o app migra para o tema pessoal sem perder nada.
+    private val _corPessoal = MutableStateFlow(
+        lerEnum(CHAVE_COR_PESSOAL, CorApp.VERDE, CorApp::valueOf)
     )
-    val corPrimaria: StateFlow<CorApp> = _corPrimaria.asStateFlow()
+    val corPessoal: StateFlow<CorApp> = _corPessoal.asStateFlow()
+
+    private val _corEmpresa = MutableStateFlow(
+        lerEnum(CHAVE_COR_EMPRESA, CorApp.AZUL, CorApp::valueOf)
+    )
+    val corEmpresa: StateFlow<CorApp> = _corEmpresa.asStateFlow()
 
     fun definirEscalaFonte(escala: EscalaFonte) {
         prefs.edit { putString(CHAVE_FONTE, escala.name) }
         _escalaFonte.value = escala
     }
 
-    fun definirCorPrimaria(cor: CorApp) {
-        prefs.edit { putString(CHAVE_COR, cor.name) }
-        _corPrimaria.value = cor
+    fun definirCorPessoal(cor: CorApp) {
+        prefs.edit { putString(CHAVE_COR_PESSOAL, cor.name) }
+        _corPessoal.value = cor
+    }
+
+    fun definirCorEmpresa(cor: CorApp) {
+        prefs.edit { putString(CHAVE_COR_EMPRESA, cor.name) }
+        _corEmpresa.value = cor
     }
 
     private fun <T> lerEnum(chave: String, padrao: T, converter: (String) -> T): T {
@@ -45,6 +61,7 @@ class AparenciaManager @Inject constructor(
 
     private companion object {
         const val CHAVE_FONTE = "escala_fonte"
-        const val CHAVE_COR = "cor_primaria"
+        const val CHAVE_COR_PESSOAL = "cor_primaria"
+        const val CHAVE_COR_EMPRESA = "cor_empresa"
     }
 }
