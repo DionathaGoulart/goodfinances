@@ -315,7 +315,7 @@ fun ConfigScreen(
                                     type = "text/plain"
                                     putExtra(
                                         Intent.EXTRA_TEXT,
-                                        "Entre na minha Casa no FinanApp com o código: " +
+                                        "Entre na minha Casa no GoodFinances com o código: " +
                                             casaAtual.codigoConvite
                                     )
                                 }
@@ -595,17 +595,17 @@ fun ConfigScreen(
         ItemDados(
             icone = Icons.Filled.FileDownload,
             titulo = "Exportar para CSV",
-            onClick = { exportCsv.launch("FinanApp_$hoje.csv") }
+            onClick = { exportCsv.launch("GoodFinances_$hoje.csv") }
         )
         ItemDados(
             icone = Icons.Filled.FileDownload,
             titulo = "Exportar para JSON",
-            onClick = { exportJson.launch("FinanApp_$hoje.json") }
+            onClick = { exportJson.launch("GoodFinances_$hoje.json") }
         )
         ItemDados(
             icone = Icons.Filled.FileDownload,
             titulo = "Exportar Relatório PDF",
-            onClick = { exportPdf.launch("FinanApp_Relatorio_$hoje.pdf") }
+            onClick = { exportPdf.launch("GoodFinances_Relatorio_$hoje.pdf") }
         )
         ItemDados(
             icone = Icons.Filled.FileUpload,
@@ -616,7 +616,7 @@ fun ConfigScreen(
             icone = Icons.AutoMirrored.Filled.ReceiptLong,
             titulo = "Exportar Notas Fiscais (ZIP)",
             subtitulo = "Tudo organizado por ano e mês — pronto para o imposto",
-            onClick = { exportZip.launch("FinanApp_Notas_$hoje.zip") }
+            onClick = { exportZip.launch("GoodFinances_Notas_$hoje.zip") }
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -833,7 +833,7 @@ fun ConfigScreen(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "FinanApp — Versão ${BuildConfig.VERSION_NAME}",
+            text = "GoodFinances — Versão ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface
         )

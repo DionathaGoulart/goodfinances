@@ -390,7 +390,7 @@ fun HomeScreen(
             text = {
                 Text(
                     if (nova.notas.isBlank()) {
-                        "Uma atualização do FinanApp está pronta para baixar."
+                        "Uma atualização do GoodFinances está pronta para baixar."
                     } else {
                         nova.notas.take(600)
                     }

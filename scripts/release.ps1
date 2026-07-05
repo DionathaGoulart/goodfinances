@@ -27,7 +27,7 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 .\gradlew.bat assembleRelease
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
-$apk = "FinanApp-$Versao.apk"
+$apk = "GoodFinances-$Versao.apk"
 Copy-Item app\build\outputs\apk\release\app-release.apk $apk -Force
 
 git push origin main
@@ -35,9 +35,9 @@ git tag "v$Versao"
 git push origin "v$Versao"
 
 if ($Notas -eq "") {
-    gh release create "v$Versao" $apk --title "FinanApp $Versao" --generate-notes
+    gh release create "v$Versao" $apk --title "GoodFinances $Versao" --generate-notes
 } else {
-    gh release create "v$Versao" $apk --title "FinanApp $Versao" --notes $Notas
+    gh release create "v$Versao" $apk --title "GoodFinances $Versao" --notes $Notas
 }
 
 Remove-Item $apk

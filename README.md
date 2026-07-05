@@ -1,4 +1,4 @@
-# 💰 FinanApp
+# 💰 GoodFinances
 
 App Android de controle financeiro pessoal e familiar, com **carteira compartilhada sincronizada em tempo real** entre celulares. Feito em Kotlin + Jetpack Compose, dark mode nativo, 100% em português.
 

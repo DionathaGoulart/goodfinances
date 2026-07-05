@@ -32,7 +32,7 @@ Para gerar os seus:
 ```powershell
 & "$env:JAVA_HOME\bin\keytool.exe" -genkeypair -v -keystore finapp-release.jks `
   -alias finapp -keyalg RSA -keysize 2048 -validity 10000 `
-  -dname "CN=FinanApp"
+  -dname "CN=GoodFinances"
 ```
 
 > ⚠️ **Faça backup do keystore e do key.properties.** Sem eles não é possível publicar atualizações do app já instalado.
