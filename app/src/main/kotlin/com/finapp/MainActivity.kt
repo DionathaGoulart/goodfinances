@@ -116,7 +116,7 @@ class MainActivity : FragmentActivity() {
             }
         )
         val info = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Desbloquear FinanApp")
+            .setTitle("Desbloquear GoodFinances")
             .setSubtitle("Use sua biometria ou o bloqueio do aparelho")
             .setAllowedAuthenticators(BIOMETRIC_WEAK or DEVICE_CREDENTIAL)
             .build()
@@ -146,7 +146,7 @@ private fun TelaBloqueio(onDesbloquear: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "FinanApp bloqueado",
+            text = "GoodFinances bloqueado",
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onBackground
         )

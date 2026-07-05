@@ -168,15 +168,19 @@ class BackupManager @Inject constructor(
 
     private data class BackupNuvem(val json: String, val criadoEm: Long)
 
-    private fun prefixo(perfil: Perfil) = "FinanApp_backup_${perfil.name.lowercase()}_"
+    private fun prefixo(perfil: Perfil) = "GoodFinances_backup_${perfil.name.lowercase()}_"
+
+    /** Prefixo da época em que o app se chamava FinanApp — só para restaurar. */
+    private fun prefixoLegado(perfil: Perfil) = "FinanApp_backup_${perfil.name.lowercase()}_"
 
     /** Filtra por prefixo exato (o timestamp após o prefixo começa com dígito). */
     private fun backupsDoPerfil(perfil: Perfil): List<File> {
-        val prefixo = prefixo(perfil)
+        val prefixos = listOf(prefixo(perfil), prefixoLegado(perfil))
         return diretorio.listFiles { f ->
-            f.extension == "json" &&
-                f.name.startsWith(prefixo) &&
-                f.name.removePrefix(prefixo).firstOrNull()?.isDigit() == true
+            f.extension == "json" && prefixos.any { p ->
+                f.name.startsWith(p) &&
+                    f.name.removePrefix(p).firstOrNull()?.isDigit() == true
+            }
         }?.toList().orEmpty()
     }
 

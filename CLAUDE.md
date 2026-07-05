@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Projeto
 
-FinanApp — app Android de controle financeiro pessoal (Kotlin + Jetpack Compose, Material 3, dark mode sempre ativo). Idioma do código e da UI: **português brasileiro** (nomes de classes/funções/propriedades em pt-BR, ex: `TransacaoViewModel.adicionarTransacao`).
+GoodFinances (nome interno FinanApp/`com.finapp` — o applicationId nunca muda, senão o app instalado não atualiza) — app Android de controle financeiro pessoal (Kotlin + Jetpack Compose, Material 3, dark mode sempre ativo). Idioma do código e da UI: **português brasileiro** (nomes de classes/funções/propriedades em pt-BR, ex: `TransacaoViewModel.adicionarTransacao`).
 
 ## Build
 

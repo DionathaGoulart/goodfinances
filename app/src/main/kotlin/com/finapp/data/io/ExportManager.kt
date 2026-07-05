@@ -198,7 +198,7 @@ class ExportManager @Inject constructor(
 
         // Cabeçalho
         linha("Relatório Financeiro — ${perfil.rotulo}", paintTitulo)
-        linha("Gerado em $agora pelo FinanApp", paintCinza)
+        linha("Gerado em $agora pelo GoodFinances", paintCinza)
         y += 12f
 
         // Resumo
