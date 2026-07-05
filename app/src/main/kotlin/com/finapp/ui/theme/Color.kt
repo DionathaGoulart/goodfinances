@@ -11,6 +11,7 @@ val GreenPrimary = Color(0xFF10B981)   // Ganhos / ações positivas
 val GreenDark = Color(0xFF059669)
 val RedExpense = Color(0xFFEF4444)     // Gastos
 val BluAccent = Color(0xFF3B82F6)      // Filtros ativos / seleção
+val OrangeAlert = Color(0xFFF59E0B)    // Avisos (orçamento/limite chegando no teto)
 
 val TextPrimary = Color(0xFFF0F6FC)
 val TextSecondary = Color(0xFF8B949E)

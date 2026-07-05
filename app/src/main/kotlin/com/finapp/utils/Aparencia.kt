@@ -7,12 +7,14 @@ enum class EscalaFonte(val rotulo: String, val fator: Float) {
     MUITO_GRANDE("Muito Grande", 1.3f)
 }
 
-/** Opções de cor primária do tema. */
+/** Opções de cor do tema (pessoal e empresa têm cada um a sua). */
 enum class CorApp(val rotulo: String, val hex: String) {
     VERDE("Verde", "#10B981"),
     AZUL("Azul", "#3B82F6"),
     ROXO("Roxo", "#8B5CF6"),
-    LARANJA("Laranja", "#F59E0B")
+    LARANJA("Laranja", "#F59E0B"),
+    CIANO("Ciano", "#06B6D4"),
+    ROSA("Rosa", "#EC4899")
 }
 
 /** Paleta para categorias (criação e edição). */
