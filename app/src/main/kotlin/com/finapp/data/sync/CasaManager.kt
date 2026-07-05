@@ -42,7 +42,8 @@ data class Casa(
 @Singleton
 class CasaManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val repository: com.finapp.data.repository.FinanceRepository
+    private val repository: com.finapp.data.repository.FinanceRepository,
+    private val perfilManager: com.finapp.data.PerfilManager
 ) {
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseFirestore.getInstance()
@@ -65,6 +66,22 @@ class CasaManager @Inject constructor(
         runCatching {
             val doc = db.collection(COLECAO).document(casaId).get().await()
             _casa.value = doc.paraCasa()
+            // Casas criadas antes da coleção de convites: registra o código
+            // para novos membros conseguirem entrar (as regras não deixam
+            // mais procurar casas pelo código diretamente)
+            _casa.value?.let { garantirConvite(it) }
+        }.onFailure {
+            android.util.Log.w(TAG, "Falha ao carregar a casa $casaId", it)
+        }
+    }
+
+    /** Cria o doc `convites/{codigo}` se ainda não existir (auto-reparo). */
+    private suspend fun garantirConvite(casa: Casa) {
+        runCatching {
+            val convite = conviteRef(casa.codigoConvite).get().await()
+            if (!convite.exists()) {
+                conviteRef(casa.codigoConvite).set(mapOf("casaId" to casa.id)).await()
+            }
         }
     }
 
@@ -104,19 +121,29 @@ class CasaManager @Inject constructor(
     /** Cria uma casa nova com código de convite único e entra nela. */
     suspend fun criarCasa(): Casa {
         val uid = uidLogado()
+        check(_casa.value == null) { "Você já está numa casa — saia dela primeiro" }
         var codigo = gerarCodigo()
         // Regenera em caso de colisão de código (raro)
-        while (buscarPorCodigo(codigo) != null) {
+        while (conviteRef(codigo).get().await().exists()) {
             codigo = gerarCodigo()
         }
 
-        val dados = mapOf(
-            "codigoConvite" to codigo,
-            "membros" to listOf(uid),
-            "criadoPor" to uid,
-            "criadoEm" to FieldValue.serverTimestamp()
+        // Casa + convite juntos: o convite é o único caminho público até a
+        // casa (as regras não deixam listar casas nem ler as dos outros)
+        val ref = db.collection(COLECAO).document()
+        val batch = db.batch()
+        batch.set(
+            ref,
+            mapOf(
+                "codigoConvite" to codigo,
+                "membros" to listOf(uid),
+                "criadoPor" to uid,
+                "criadoEm" to FieldValue.serverTimestamp()
+            )
         )
-        val ref = db.collection(COLECAO).add(dados).await()
+        batch.set(conviteRef(codigo), mapOf("casaId" to ref.id))
+        batch.commit().await()
+
         val casa = Casa(id = ref.id, codigoConvite = codigo, membros = listOf(uid))
         // Só o criador semeia as categorias padrão; os demais recebem via sync
         repository.semearCategoriasCasa()
@@ -127,15 +154,20 @@ class CasaManager @Inject constructor(
     /** Entra numa casa existente pelo código de convite. */
     suspend fun entrarNaCasa(codigo: String): Casa {
         val uid = uidLogado()
+        check(_casa.value == null) { "Você já está numa casa — saia dela primeiro" }
         val codigoLimpo = codigo.trim().uppercase()
-        val encontrada = buscarPorCodigo(codigoLimpo)
+        // O convite resolve o código -> casa (get direto; sem varrer casas)
+        val casaId = conviteRef(codigoLimpo).get().await().getString("casaId")
             ?: throw IllegalArgumentException("Nenhuma casa com o código $codigoLimpo")
 
-        db.collection(COLECAO).document(encontrada.id)
+        // Entra primeiro (a regra permite o update que ADICIONA o próprio
+        // uid); só membro consegue ler o doc da casa
+        db.collection(COLECAO).document(casaId)
             .update("membros", FieldValue.arrayUnion(uid))
             .await()
 
-        val casa = encontrada.copy(membros = encontrada.membros + uid)
+        val casa = db.collection(COLECAO).document(casaId).get().await().paraCasa()
+            ?: throw IllegalStateException("Casa não encontrada — peça um código novo")
         salvarCasa(casa)
         return casa
     }
@@ -144,11 +176,32 @@ class CasaManager @Inject constructor(
     suspend fun sairDaCasa() {
         val casaAtual = _casa.value ?: return
         val uid = uidLogado()
+        // Remove o espelho dos meus lançamentos pessoais ANTES de sair
+        // (depois de sair das `membros`, as regras negam a escrita)
+        runCatching { apagarEspelhoRemoto(casaAtual.id, uid) }
         db.collection(COLECAO).document(casaAtual.id)
             .update("membros", FieldValue.arrayRemove(uid))
             .await()
         prefs.edit { remove(CHAVE_CASA) }
         _casa.value = null
+        perfilManager.definirTemCasa(false)
+        // Limpa os dados locais da Casa (delete físico, o sync já parou):
+        // sem isso, entrar em OUTRA casa empurraria o histórico da antiga
+        repository.limparDadosLocaisDaCasa()
+    }
+
+    /** Apaga em lotes todos os docs do espelho pessoal deste membro. */
+    private suspend fun apagarEspelhoRemoto(casaId: String, uid: String) {
+        val ref = db.collection(COLECAO).document(casaId)
+            .collection("membros").document(uid)
+            .collection("transacoes")
+        while (true) {
+            val docs = ref.limit(400).get().await().documents
+            if (docs.isEmpty()) break
+            val batch = db.batch()
+            docs.forEach { batch.delete(it.reference) }
+            batch.commit().await()
+        }
     }
 
     // ---------- Internos ----------
@@ -156,19 +209,13 @@ class CasaManager @Inject constructor(
     private fun uidLogado(): String =
         auth.currentUser?.uid ?: throw IllegalStateException("Faça login primeiro")
 
-    private suspend fun buscarPorCodigo(codigo: String): Casa? =
-        db.collection(COLECAO)
-            .whereEqualTo("codigoConvite", codigo)
-            .limit(1)
-            .get()
-            .await()
-            .documents
-            .firstOrNull()
-            ?.paraCasa()
+    private fun conviteRef(codigo: String) =
+        db.collection(COLECAO_CONVITES).document(codigo)
 
     private fun salvarCasa(casa: Casa) {
         prefs.edit { putString(CHAVE_CASA, casa.id) }
         _casa.value = casa
+        perfilManager.definirTemCasa(true)
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -205,7 +252,9 @@ class CasaManager @Inject constructor(
             .joinToString("")
 
     private companion object {
+        const val TAG = "CasaManager"
         const val COLECAO = "casas"
+        const val COLECAO_CONVITES = "convites"
         const val CHAVE_CASA = "casa_id"
         const val TAMANHO_CODIGO = 6
 
