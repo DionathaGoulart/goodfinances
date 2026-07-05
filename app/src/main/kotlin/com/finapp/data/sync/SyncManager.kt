@@ -19,23 +19,37 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Sincroniza transações e categorias do perfil CASA com o Firestore
- * (`casas/{id}/transacoes|categorias/{uuid}`).
+ * Sincroniza transações e categorias com o Firestore:
  *
+ * - CASA (sempre que o usuário está numa casa):
+ *   `casas/{id}/transacoes|categorias/{uuid}` — compartilhado entre membros.
+ * - PESSOAL (opt-in em Configurações, logado com Google): todos os baldes
+ *   locais (Pessoal, Empresa, os dois lados do modo misto) em
+ *   `usuarios/{uid}/perfis/{perfil}/transacoes|categorias/{uuid}` — mesmos
+ *   dados em todos os aparelhos da conta.
+ *
+ * Mecânica comum:
  * - PULL: snapshot listeners aplicam docs remotos no Room quando o
  *   `atualizadoEm` remoto é mais novo ("última edição vence").
  * - PUSH: observa a última modificação local e sobe (com debounce) as
- *   linhas alteradas desde a marca por casa. Escritas offline ficam na
+ *   linhas alteradas desde a marca por destino. Escritas offline ficam na
  *   fila durável do Firestore, então o push é fire-and-forget.
  * - Deleções viajam como tombstones (`deletado = true`), nunca como
  *   remoção de documento.
+ * - Notas fiscais NÃO sincronizam (o arquivo é local): o pull preserva o
+ *   `notaFiscal` que já existir no aparelho.
  */
 @OptIn(FlowPreview::class)
 @Singleton
@@ -49,55 +63,255 @@ class SyncManager @Inject constructor(
     private val prefs = context.getSharedPreferences("finapp_prefs", Context.MODE_PRIVATE)
     private val escopo = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val trabalhos = mutableListOf<Job>()
-    private val listeners = mutableListOf<ListenerRegistration>()
+    private val trabalhosCasa = mutableListOf<Job>()
+    private val listenersCasa = mutableListOf<ListenerRegistration>()
+    private val trabalhosPessoal = mutableListOf<Job>()
+    private val listenersPessoal = mutableListOf<ListenerRegistration>()
+    private val trabalhosEspelho = mutableListOf<Job>()
+    private val listenersEspelho = mutableListOf<ListenerRegistration>()
 
-    /** Chamado uma vez, no Application. Liga/desliga conforme a casa ativa. */
+    /** Baldes sincronizados no modo pessoal (a Casa tem fluxo próprio). */
+    private val baldesPessoais = Perfil.BALDES_DADOS - Perfil.CASA
+
+    private val _syncPessoalAtivado =
+        MutableStateFlow(prefs.getBoolean(CHAVE_SYNC_PESSOAL, false))
+    /** Sync pessoal entre aparelhos (opt-in nas Configurações). */
+    val syncPessoalAtivado: StateFlow<Boolean> = _syncPessoalAtivado.asStateFlow()
+
+    fun alternarSyncPessoal(ativo: Boolean) {
+        prefs.edit { putBoolean(CHAVE_SYNC_PESSOAL, ativo) }
+        _syncPessoalAtivado.value = ativo
+    }
+
+    private val _compartilharCasaAtivado =
+        MutableStateFlow(prefs.getBoolean(CHAVE_COMPARTILHAR_CASA, false))
+    /** Espelhar meus lançamentos PESSOAIS na visão Membros da casa (opt-in). */
+    val compartilharCasaAtivado: StateFlow<Boolean> = _compartilharCasaAtivado.asStateFlow()
+
+    fun alternarCompartilharCasa(ativo: Boolean) {
+        prefs.edit { putBoolean(CHAVE_COMPARTILHAR_CASA, ativo) }
+        _compartilharCasaAtivado.value = ativo
+        // Desligou: some da visão dos outros membros e zera as marcas
+        // (se religar, re-espelha tudo)
+        if (!ativo) {
+            escopo.launch { runCatching { apagarEspelhoRemoto() } }
+        }
+    }
+
+    /** Chamado uma vez, no Application. Liga/desliga conforme casa e login. */
     fun iniciar() {
         escopo.launch {
             casaManager.carregarCasa()
             casaManager.casa.collect { casa ->
-                pararSync()
-                if (casa != null) iniciarSync(casa.id)
+                parar(listenersCasa, trabalhosCasa)
+                if (casa != null) iniciarSyncCasa(casa.id)
+            }
+        }
+        escopo.launch {
+            combine(casaManager.usuario, _syncPessoalAtivado) { usuario, ativo ->
+                if (ativo) usuario?.uid else null
+            }.collect { uid ->
+                parar(listenersPessoal, trabalhosPessoal)
+                if (uid != null) iniciarSyncPessoal(uid)
+            }
+        }
+        escopo.launch {
+            combine(
+                casaManager.casa,
+                casaManager.usuario,
+                _compartilharCasaAtivado
+            ) { casa, usuario, compartilhar -> Triple(casa, usuario, compartilhar) }
+                .collect { (casa, usuario, compartilhar) ->
+                    parar(listenersEspelho, trabalhosEspelho)
+                    if (casa != null && usuario != null) {
+                        iniciarEspelhoCasa(casa, usuario, compartilhar)
+                    }
+                }
+        }
+    }
+
+    /**
+     * Visão "Membros" da casa: puxa os lançamentos pessoais espelhados dos
+     * OUTROS membros para o balde local CASA_MEMBROS e, se [compartilhar],
+     * espelha os meus baldes pessoais (nunca os de empresa) para a casa.
+     */
+    private fun iniciarEspelhoCasa(casa: Casa, usuario: UsuarioCasa, compartilhar: Boolean) {
+        // PULL: feed de cada outro membro (REMOVED = ele parou de compartilhar)
+        casa.membros.filter { it != usuario.uid }.forEach { membroUid ->
+            listenersEspelho += espelhoRef(casa.id, membroUid)
+                .addSnapshotListener { snapshot, erro ->
+                    if (erro != null || snapshot == null) return@addSnapshotListener
+                    val mudancas = snapshot.documentChanges
+                    if (mudancas.isNotEmpty()) {
+                        escopo.launch {
+                            mudancas.forEach { mudanca ->
+                                if (mudanca.type == DocumentChange.Type.REMOVED) {
+                                    transacaoDao.deletarPorUuidEPerfil(
+                                        mudanca.document.id, Perfil.CASA_MEMBROS
+                                    )
+                                } else {
+                                    aplicarTransacaoRemota(
+                                        mudanca.document, Perfil.CASA_MEMBROS
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+        }
+
+        // PUSH: meus lançamentos pessoais, com meu nome como autor.
+        // O espelho é um feed de exibição: deleção vira REMOÇÃO do doc
+        // (não tombstone), para o feed não acumular lixo.
+        if (compartilhar) {
+            Perfil.BALDES_PESSOAIS.forEach { balde ->
+                trabalhosEspelho += escopo.launch {
+                    transacaoDao.observarUltimaModificacao(balde)
+                        .debounce(1_500)
+                        .collect {
+                            runCatching {
+                                empurrarTransacoes(
+                                    ref = espelhoRef(casa.id, usuario.uid),
+                                    perfil = balde,
+                                    chaveMarca = chaveMarcaEspelho(casa.id, balde),
+                                    autorPadrao = usuario.nome,
+                                    deletarTombstones = true
+                                )
+                            }
+                        }
+                }
             }
         }
     }
 
-    private fun iniciarSync(casaId: String) {
-        // ---------- PULL (tempo real) ----------
-        listeners += transacoesRef(casaId).addSnapshotListener { snapshot, erro ->
-            if (erro != null || snapshot == null) return@addSnapshotListener
-            val docs = snapshot.documentChanges
-                .filter { it.type != DocumentChange.Type.REMOVED }
-                .map { it.document }
-            if (docs.isNotEmpty()) {
-                escopo.launch { docs.forEach { aplicarTransacaoRemota(it) } }
+    /**
+     * Reconstrói o espelho na visão Membros: apaga TODOS os meus docs no
+     * feed remoto (inclusive órfãos de versões antigas, que apagavam sem
+     * tombstone), zera as marcas e re-espelha na hora o que existe de
+     * verdade. Chamado pelo "Limpar Todos os Dados".
+     */
+    suspend fun ressincronizarEspelho() {
+        val casa = casaManager.casa.value ?: return
+        val usuario = casaManager.usuario.value ?: return
+        apagarEspelhoRemoto()
+        if (_compartilharCasaAtivado.value) {
+            Perfil.BALDES_PESSOAIS.forEach { balde ->
+                runCatching {
+                    empurrarTransacoes(
+                        ref = espelhoRef(casa.id, usuario.uid),
+                        perfil = balde,
+                        chaveMarca = chaveMarcaEspelho(casa.id, balde),
+                        autorPadrao = usuario.nome,
+                        deletarTombstones = true
+                    )
+                }
             }
         }
-        listeners += categoriasRef(casaId).addSnapshotListener { snapshot, erro ->
+    }
+
+    /** Apaga meu espelho na casa (parei de compartilhar) e zera as marcas. */
+    private suspend fun apagarEspelhoRemoto() {
+        val casa = casaManager.casa.value ?: return
+        val uid = casaManager.usuario.value?.uid ?: return
+        val ref = espelhoRef(casa.id, uid)
+        while (true) {
+            val docs = ref.limit(400).get().await().documents
+            if (docs.isEmpty()) break
+            val batch = db.batch()
+            docs.forEach { batch.delete(it.reference) }
+            batch.commit().await()
+        }
+        prefs.edit {
+            Perfil.BALDES_PESSOAIS.forEach { remove(chaveMarcaEspelho(casa.id, it)) }
+        }
+    }
+
+    private fun chaveMarcaEspelho(casaId: String, balde: Perfil) =
+        "sync_marca_espelho_${casaId}_${balde.name}"
+
+    private fun espelhoRef(casaId: String, uid: String): CollectionReference =
+        db.collection("casas").document(casaId)
+            .collection("membros").document(uid)
+            .collection("transacoes")
+
+    private fun iniciarSyncCasa(casaId: String) {
+        ligarSync(
+            transacoes = transacoesCasaRef(casaId),
+            categorias = categoriasCasaRef(casaId),
+            perfil = Perfil.CASA,
+            // Chaves antigas preservadas para não re-empurrar tudo
+            chaveMarcaTransacoes = "sync_marca_transacoes_$casaId",
+            chaveMarcaCategorias = "sync_marca_categorias_$casaId",
+            listeners = listenersCasa,
+            trabalhos = trabalhosCasa
+        )
+    }
+
+    private fun iniciarSyncPessoal(uid: String) {
+        baldesPessoais.forEach { perfil ->
+            ligarSync(
+                transacoes = transacoesPessoalRef(uid, perfil),
+                categorias = categoriasPessoalRef(uid, perfil),
+                perfil = perfil,
+                chaveMarcaTransacoes = "sync_marca_t_${uid}_${perfil.name}",
+                chaveMarcaCategorias = "sync_marca_c_${uid}_${perfil.name}",
+                listeners = listenersPessoal,
+                trabalhos = trabalhosPessoal
+            )
+        }
+    }
+
+    /** PULL em tempo real + PUSH reativo de um par de coleções para um balde. */
+    private fun ligarSync(
+        transacoes: CollectionReference,
+        categorias: CollectionReference,
+        perfil: Perfil,
+        chaveMarcaTransacoes: String,
+        chaveMarcaCategorias: String,
+        listeners: MutableList<ListenerRegistration>,
+        trabalhos: MutableList<Job>
+    ) {
+        // ---------- PULL (tempo real) ----------
+        listeners += transacoes.addSnapshotListener { snapshot, erro ->
             if (erro != null || snapshot == null) return@addSnapshotListener
             val docs = snapshot.documentChanges
                 .filter { it.type != DocumentChange.Type.REMOVED }
                 .map { it.document }
             if (docs.isNotEmpty()) {
-                escopo.launch { docs.forEach { aplicarCategoriaRemota(it) } }
+                escopo.launch { docs.forEach { aplicarTransacaoRemota(it, perfil) } }
+            }
+        }
+        listeners += categorias.addSnapshotListener { snapshot, erro ->
+            if (erro != null || snapshot == null) return@addSnapshotListener
+            val docs = snapshot.documentChanges
+                .filter { it.type != DocumentChange.Type.REMOVED }
+                .map { it.document }
+            if (docs.isNotEmpty()) {
+                escopo.launch { docs.forEach { aplicarCategoriaRemota(it, perfil) } }
             }
         }
 
         // ---------- PUSH (reativo, com debounce) ----------
         trabalhos += escopo.launch {
-            transacaoDao.observarUltimaModificacao(Perfil.CASA)
+            transacaoDao.observarUltimaModificacao(perfil)
                 .debounce(1_500)
-                .collect { runCatching { empurrarTransacoes(casaId) } }
+                .collect {
+                    runCatching { empurrarTransacoes(transacoes, perfil, chaveMarcaTransacoes) }
+                }
         }
         trabalhos += escopo.launch {
-            categoriaDao.observarUltimaModificacao(Perfil.CASA)
+            categoriaDao.observarUltimaModificacao(perfil)
                 .debounce(1_500)
-                .collect { runCatching { empurrarCategorias(casaId) } }
+                .collect {
+                    runCatching { empurrarCategorias(categorias, perfil, chaveMarcaCategorias) }
+                }
         }
     }
 
-    private fun pararSync() {
+    private fun parar(
+        listeners: MutableList<ListenerRegistration>,
+        trabalhos: MutableList<Job>
+    ) {
         listeners.forEach { it.remove() }
         listeners.clear()
         trabalhos.forEach { it.cancel() }
@@ -106,17 +320,35 @@ class SyncManager @Inject constructor(
 
     // ---------- PUSH ----------
 
-    private suspend fun empurrarTransacoes(casaId: String) {
-        val chave = "sync_marca_transacoes_$casaId"
-        val marca = prefs.getLong(chave, 0L)
-        val modificadas = transacaoDao.listarModificadas(Perfil.CASA, marca)
-        if (modificadas.isEmpty()) return
+    private suspend fun empurrarTransacoes(
+        ref: CollectionReference,
+        perfil: Perfil,
+        chaveMarca: String,
+        autorPadrao: String? = null,
+        deletarTombstones: Boolean = false
+    ) {
+        val marca = prefs.getLong(chaveMarca, 0L)
+        // Na Casa, empurra só os MEUS lançamentos (e os legados sem autor):
+        // as regras negam escrita em doc de outro autor, e uma negação
+        // derruba o batch inteiro (eco de docs puxados incluído).
+        val meuUid = casaManager.usuario.value?.uid
+        val todas = transacaoDao.listarModificadas(perfil, marca)
+        if (todas.isEmpty()) return
+        val modificadas = todas.filter { t ->
+            perfil != Perfil.CASA ||
+                t.criadoPorUid.isBlank() ||
+                t.criadoPorUid == meuUid
+        }
 
         modificadas.chunked(400).forEach { lote ->
             val batch = db.batch()
             lote.forEach { t ->
+                if (deletarTombstones && t.deletado) {
+                    batch.delete(ref.document(t.uuid))
+                    return@forEach
+                }
                 batch.set(
-                    transacoesRef(casaId).document(t.uuid),
+                    ref.document(t.uuid),
                     mapOf(
                         "valor" to t.valor,
                         "tipo" to t.tipo.name,
@@ -125,32 +357,42 @@ class SyncManager @Inject constructor(
                         "data" to t.data.toEpochDay(),
                         "atualizadoEm" to t.atualizadoEm,
                         "deletado" to t.deletado,
-                        "criadoPor" to t.criadoPor
+                        "criadoPor" to (autorPadrao ?: t.criadoPor),
+                        "criadoPorUid" to t.criadoPorUid.ifBlank {
+                            if (autorPadrao != null) meuUid.orEmpty() else ""
+                        },
+                        "transferenciaId" to t.transferenciaId
                     )
                 )
             }
             // Fire-and-forget: offline, a escrita fica na fila durável do SDK
             batch.commit()
         }
-        prefs.edit { putLong(chave, modificadas.maxOf { it.atualizadoEm }) }
+        // A marca avança sobre TODAS as linhas listadas: docs de outros
+        // autores nunca serão empurrados, não precisam ser re-listados
+        prefs.edit { putLong(chaveMarca, todas.maxOf { it.atualizadoEm }) }
     }
 
-    private suspend fun empurrarCategorias(casaId: String) {
-        val chave = "sync_marca_categorias_$casaId"
-        val marca = prefs.getLong(chave, 0L)
-        val modificadas = categoriaDao.listarModificadas(Perfil.CASA, marca)
+    private suspend fun empurrarCategorias(
+        ref: CollectionReference,
+        perfil: Perfil,
+        chaveMarca: String
+    ) {
+        val marca = prefs.getLong(chaveMarca, 0L)
+        val modificadas = categoriaDao.listarModificadas(perfil, marca)
         if (modificadas.isEmpty()) return
 
         modificadas.chunked(400).forEach { lote ->
             val batch = db.batch()
             lote.forEach { c ->
                 batch.set(
-                    categoriasRef(casaId).document(c.uuid),
+                    ref.document(c.uuid),
                     mapOf(
                         "nome" to c.nome,
                         "tipo" to c.tipo.name,
                         "cor" to c.cor,
                         "arquivada" to c.arquivada,
+                        "orcamentoMensal" to c.orcamentoMensal,
                         "atualizadoEm" to c.atualizadoEm,
                         "deletado" to c.deletado
                     )
@@ -158,12 +400,12 @@ class SyncManager @Inject constructor(
             }
             batch.commit()
         }
-        prefs.edit { putLong(chave, modificadas.maxOf { it.atualizadoEm }) }
+        prefs.edit { putLong(chaveMarca, modificadas.maxOf { it.atualizadoEm }) }
     }
 
     // ---------- PULL ----------
 
-    private suspend fun aplicarTransacaoRemota(doc: DocumentSnapshot) {
+    private suspend fun aplicarTransacaoRemota(doc: DocumentSnapshot, perfil: Perfil) {
         val remotaAtualizadaEm = doc.getLong("atualizadoEm") ?: return
         val local = transacaoDao.obterPorUuid(doc.id)
         // Última edição vence; empate = mantém o local (evita eco)
@@ -177,27 +419,57 @@ class SyncManager @Inject constructor(
             categoria = doc.getString("categoria") ?: "Outros",
             descricao = doc.getString("descricao") ?: "",
             data = LocalDate.ofEpochDay(doc.getLong("data") ?: return),
-            perfil = Perfil.CASA,
+            perfil = perfil,
             atualizadoEm = remotaAtualizadaEm,
             deletado = doc.getBoolean("deletado") ?: false,
-            criadoPor = doc.getString("criadoPor") ?: ""
+            criadoPor = doc.getString("criadoPor") ?: "",
+            criadoPorUid = doc.getString("criadoPorUid") ?: "",
+            transferenciaId = doc.getString("transferenciaId") ?: "",
+            // A nota fiscal é um arquivo local — nunca vem do remoto
+            notaFiscal = local?.notaFiscal ?: ""
         )
         if (local == null) transacaoDao.inserir(transacao) else transacaoDao.atualizar(transacao)
+
+        // Transferência deletada em outro aparelho: tombstona a outra perna
+        // local também (ela pode viver num balde que só existe aqui)
+        if (transacao.deletado && transacao.transferenciaId.isNotBlank()) {
+            transacaoDao.listarPorTransferencia(transacao.transferenciaId)
+                .filter { it.uuid != transacao.uuid && !it.deletado }
+                .forEach {
+                    transacaoDao.atualizar(
+                        it.copy(deletado = true, atualizadoEm = System.currentTimeMillis())
+                    )
+                }
+        }
     }
 
-    private suspend fun aplicarCategoriaRemota(doc: DocumentSnapshot) {
+    private suspend fun aplicarCategoriaRemota(doc: DocumentSnapshot, perfil: Perfil) {
         val remotaAtualizadaEm = doc.getLong("atualizadoEm") ?: return
         val local = categoriaDao.obterPorUuid(doc.id)
         if (local != null && local.atualizadoEm >= remotaAtualizadaEm) return
 
+        val nome = doc.getString("nome") ?: return
+        val tipo = parseTipo(doc.getString("tipo")) ?: return
+
+        // Dedup semântico: cada aparelho semeia as categorias padrão com
+        // uuids próprios — sem isso, o primeiro sync duplicaria todas.
+        if (local == null &&
+            categoriaDao.listarTodas(perfil).any {
+                it.nome.equals(nome, ignoreCase = true) && it.tipo == tipo
+            }
+        ) {
+            return
+        }
+
         val categoria = Categoria(
             id = local?.id ?: 0,
             uuid = doc.id,
-            nome = doc.getString("nome") ?: return,
-            tipo = parseTipo(doc.getString("tipo")) ?: return,
+            nome = nome,
+            tipo = tipo,
             cor = doc.getString("cor") ?: "#6B7280",
-            perfil = Perfil.CASA,
+            perfil = perfil,
             arquivada = doc.getBoolean("arquivada") ?: false,
+            orcamentoMensal = doc.getLong("orcamentoMensal") ?: 0L,
             atualizadoEm = remotaAtualizadaEm,
             deletado = doc.getBoolean("deletado") ?: false
         )
@@ -206,12 +478,27 @@ class SyncManager @Inject constructor(
 
     // ---------- Auxiliares ----------
 
-    private fun transacoesRef(casaId: String): CollectionReference =
+    private fun transacoesCasaRef(casaId: String): CollectionReference =
         db.collection("casas").document(casaId).collection("transacoes")
 
-    private fun categoriasRef(casaId: String): CollectionReference =
+    private fun categoriasCasaRef(casaId: String): CollectionReference =
         db.collection("casas").document(casaId).collection("categorias")
+
+    private fun perfilPessoalRef(uid: String, perfil: Perfil) =
+        db.collection("usuarios").document(uid)
+            .collection("perfis").document(perfil.name.lowercase())
+
+    private fun transacoesPessoalRef(uid: String, perfil: Perfil): CollectionReference =
+        perfilPessoalRef(uid, perfil).collection("transacoes")
+
+    private fun categoriasPessoalRef(uid: String, perfil: Perfil): CollectionReference =
+        perfilPessoalRef(uid, perfil).collection("categorias")
 
     private fun parseTipo(nome: String?): TipoTransacao? =
         runCatching { TipoTransacao.valueOf(nome ?: "") }.getOrNull()
+
+    private companion object {
+        const val CHAVE_SYNC_PESSOAL = "sync_pessoal_ativado"
+        const val CHAVE_COMPARTILHAR_CASA = "compartilhar_casa_ativado"
+    }
 }
