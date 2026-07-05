@@ -32,7 +32,8 @@ class BackupManager @Inject constructor(
     private val repository: FinanceRepository,
     private val perfilManager: PerfilManager,
     private val exportManager: ExportManager,
-    private val importManager: ImportManager
+    private val importManager: ImportManager,
+    private val driveBackupManager: DriveBackupManager
 ) {
     private val prefs = context.getSharedPreferences("finapp_prefs", Context.MODE_PRIVATE)
     private val auth = FirebaseAuth.getInstance()
@@ -90,6 +91,16 @@ class BackupManager @Inject constructor(
         }
 
         prefs.edit { putLong(CHAVE_ULTIMO, System.currentTimeMillis()) }
+
+        // Notas fiscais vão para o Drive do usuário (se ele ativou) —
+        // falha silenciosa: tenta de novo no próximo backup semanal
+        if (driveBackupManager.ativado.value) {
+            runCatching {
+                driveBackupManager.sincronizarNotas(
+                    repository.listarNotasFiscaisReferenciadas()
+                )
+            }
+        }
         return criados
     }
 
@@ -127,7 +138,13 @@ class BackupManager @Inject constructor(
     private fun subirParaNuvem(perfil: Perfil, json: String) {
         val uid = auth.currentUser?.uid ?: return
         // Documento do Firestore aguenta 1 MB — acima disso, fica só o local
-        if (json.length > LIMITE_NUVEM_BYTES) return
+        if (json.length > LIMITE_NUVEM_BYTES) {
+            android.util.Log.w(
+                "BackupManager",
+                "Backup de ${perfil.name} passou de $LIMITE_NUVEM_BYTES bytes — só local"
+            )
+            return
+        }
         docNuvem(uid, perfil).set(
             mapOf(
                 "json" to json,

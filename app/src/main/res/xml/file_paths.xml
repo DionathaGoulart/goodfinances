@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pastas internas expostas via FileProvider (notas fiscais anexadas) -->
+<paths>
+    <files-path name="notas" path="notas/" />
+</paths>
