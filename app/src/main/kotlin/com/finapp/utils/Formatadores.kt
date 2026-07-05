@@ -10,7 +10,10 @@ object Formatadores {
 
     val LOCALE_BR: Locale = Locale.forLanguageTag("pt-BR")
 
-    private val moeda: NumberFormat = NumberFormat.getCurrencyInstance(LOCALE_BR)
+    // NumberFormat NÃO é thread-safe (UI e exports em IO formatam ao mesmo
+    // tempo) — uma instância por thread
+    private val moeda: ThreadLocal<NumberFormat> =
+        ThreadLocal.withInitial { NumberFormat.getCurrencyInstance(LOCALE_BR) }
 
     private val dataCurta: DateTimeFormatter =
         DateTimeFormatter.ofPattern("dd/MM/yyyy", LOCALE_BR)
@@ -19,7 +22,7 @@ object Formatadores {
         DateTimeFormatter.ofPattern("d 'DE' MMM, EEEE", LOCALE_BR)
 
     /** Centavos -> moeda. Ex: 123456 -> "R$ 1.234,56" */
-    fun moeda(centavos: Long): String = moeda.format(centavos / 100.0)
+    fun moeda(centavos: Long): String = moeda.get()!!.format(centavos / 100.0)
 
     /** Ex: 2024-06-15 -> "15/06/2024" */
     fun dataCurta(data: LocalDate): String = data.format(dataCurta)
