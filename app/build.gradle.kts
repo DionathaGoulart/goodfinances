@@ -103,6 +103,14 @@ dependencies {
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.googleid)
     implementation(libs.kotlinx.coroutines.play.services)
+    // Autorização do escopo do Drive (backup das notas fiscais)
+    implementation(libs.play.services.auth)
+
+    // Bloqueio do app por biometria/PIN
+    implementation(libs.androidx.biometric)
+
+    // Widget de lançamento rápido na home do Android
+    implementation(libs.androidx.glance.appwidget)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 
