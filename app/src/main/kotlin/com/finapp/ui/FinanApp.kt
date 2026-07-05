@@ -15,6 +15,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -44,13 +47,17 @@ enum class FinanDestination(
     CONFIG("config", "Configurações", Icons.Filled.Settings)
 }
 
+/** [abrirLancamento] = chegada pelo widget: abre direto o modal de nova transação. */
 @Composable
-fun FinanApp(perfilViewModel: PerfilViewModel = hiltViewModel()) {
+fun FinanApp(
+    abrirLancamento: Boolean = false,
+    perfilViewModel: PerfilViewModel = hiltViewModel()
+) {
     val perfilFoiEscolhido by perfilViewModel.perfilFoiEscolhido.collectAsStateWithLifecycle()
 
-    // Primeira abertura: escolher perfil antes de entrar no app
+    // Primeira abertura: escolher o modo de uso antes de entrar no app
     if (!perfilFoiEscolhido) {
-        PerfilSelecaoScreen(onSelecionar = perfilViewModel::escolherPerfil)
+        PerfilSelecaoScreen(onConcluir = perfilViewModel::escolherModo)
         return
     }
 
@@ -102,7 +109,16 @@ fun FinanApp(perfilViewModel: PerfilViewModel = hiltViewModel()) {
             startDestination = FinanDestination.HOME.route,
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable(FinanDestination.HOME.route) { HomeScreen() }
+            composable(FinanDestination.HOME.route) {
+                // One-shot: sem isso, voltar para a aba Home reabriria o modal
+                var lancamentoPendente by rememberSaveable {
+                    mutableStateOf(abrirLancamento)
+                }
+                HomeScreen(
+                    abrirModalInicial = lancamentoPendente,
+                    onLancamentoConsumido = { lancamentoPendente = false }
+                )
+            }
             composable(FinanDestination.ANALISE.route) { AnaliseScreen() }
             composable(FinanDestination.TRANSACOES.route) { TransacoesScreen() }
             composable(FinanDestination.CONFIG.route) { ConfigScreen() }
