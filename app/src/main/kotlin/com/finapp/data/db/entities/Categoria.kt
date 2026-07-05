@@ -23,6 +23,8 @@ data class Categoria(
     val perfil: Perfil,
     /** Categorias arquivadas não aparecem em novos lançamentos, mas preservam o histórico. */
     val arquivada: Boolean = false,
+    /** Orçamento mensal em CENTAVOS (0 = sem orçamento). Só faz sentido em GASTO. */
+    val orcamentoMensal: Long = 0,
     /** Última modificação (epoch millis) — resolução de conflitos no sync. */
     val atualizadoEm: Long = System.currentTimeMillis(),
     /** Tombstone para o sync. */

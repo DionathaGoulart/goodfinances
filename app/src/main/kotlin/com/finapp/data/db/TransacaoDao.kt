@@ -31,6 +31,10 @@ interface TransacaoDao {
     @Query("SELECT * FROM Transacao WHERE perfil = :perfil AND deletado = 0")
     suspend fun listarTodas(perfil: Perfil): List<Transacao>
 
+    /** Todas as linhas do perfil, INCLUSIVE tombstones — restauração de backup. */
+    @Query("SELECT * FROM Transacao WHERE perfil = :perfil")
+    suspend fun listarComTombstones(perfil: Perfil): List<Transacao>
+
     /** Todos os uuids do perfil, INCLUSIVE tombstones — dedup de importação. */
     @Query("SELECT uuid FROM Transacao WHERE perfil = :perfil")
     suspend fun listarUuids(perfil: Perfil): List<String>
@@ -57,8 +61,29 @@ interface TransacaoDao {
     @Query("DELETE FROM Transacao WHERE perfil = :perfil")
     suspend fun deletarTodas(perfil: Perfil)
 
+    /** Limpeza que propaga no sync: marca tudo como tombstone (todos os baldes do usuário). */
+    @Query(
+        """
+        UPDATE Transacao SET deletado = 1, atualizadoEm = :agora
+        WHERE perfil = :perfil AND deletado = 0
+        """
+    )
+    suspend fun marcarTodasDeletadas(perfil: Perfil, agora: Long)
+
+    /** Nomes de arquivo de nota fiscal referenciados (todos os perfis). */
+    @Query("SELECT notaFiscal FROM Transacao WHERE notaFiscal != ''")
+    suspend fun listarNotasFiscais(): List<String>
+
+    /** Remove um espelho da visão Membros (o dono parou de compartilhar). */
+    @Query("DELETE FROM Transacao WHERE uuid = :uuid AND perfil = :perfil")
+    suspend fun deletarPorUuidEPerfil(uuid: String, perfil: Perfil)
+
     @Query("SELECT * FROM Transacao WHERE id = :id")
     suspend fun obterPorId(id: Long): Transacao?
+
+    /** As duas pernas de uma transferência entre contextos. */
+    @Query("SELECT * FROM Transacao WHERE transferenciaId = :transferenciaId")
+    suspend fun listarPorTransferencia(transferenciaId: String): List<Transacao>
 
     // ---------- Listagens (Flow = atualiza a UI em tempo real) ----------
 

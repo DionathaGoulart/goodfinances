@@ -17,7 +17,7 @@ import com.finapp.data.db.entities.TransacaoRecorrente
         ConfiguracaoPerfil::class,
         TransacaoRecorrente::class
     ],
-    version = 4,
+    version = 8,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -225,6 +225,42 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE UNIQUE INDEX IF NOT EXISTS index_Transacao_uuid " +
                         "ON Transacao (uuid)"
+                )
+            }
+        }
+
+        /** v4 -> v5: Transacao ganha notaFiscal (arquivo anexado, contextos de empresa). */
+        val MIGRACAO_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE Transacao ADD COLUMN notaFiscal TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
+        /** v5 -> v6: Categoria ganha orcamentoMensal (teto de gasto, em centavos). */
+        val MIGRACAO_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE Categoria ADD COLUMN orcamentoMensal INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
+        /** v6 -> v7: Transacao ganha criadoPorUid (autoria da Casa à prova de nome). */
+        val MIGRACAO_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE Transacao ADD COLUMN criadoPorUid TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
+        /** v7 -> v8: Transacao ganha transferenciaId (vincula as pernas da transferência). */
+        val MIGRACAO_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE Transacao ADD COLUMN transferenciaId TEXT NOT NULL DEFAULT ''"
                 )
             }
         }
