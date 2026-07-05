@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.core.content.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.finapp.data.Atualizacao
+import com.finapp.data.AtualizacaoManager
 import com.finapp.data.PerfilManager
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.Transacao
@@ -51,6 +53,7 @@ class HomeViewModel @Inject constructor(
     private val perfilManager: PerfilManager,
     private val backupManager: BackupManager,
     private val notaFiscalManager: NotaFiscalManager,
+    private val atualizacaoManager: AtualizacaoManager,
     syncManager: SyncManager,
     private val casaManager: CasaManager
 ) : ViewModel() {
@@ -106,6 +109,19 @@ class HomeViewModel @Inject constructor(
         .flatMapLatest { repository.observarUltimasTransacoes(it, limite = 10) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val _atualizacaoDispensada = MutableStateFlow(false)
+
+    /** Versão nova no GitHub (null = nada a mostrar / usuário dispensou). */
+    val atualizacao: StateFlow<Atualizacao?> =
+        combine(atualizacaoManager.disponivel, _atualizacaoDispensada) { nova, dispensada ->
+            if (dispensada) null else nova
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Esconde o aviso até a próxima abertura do app. */
+    fun dispensarAtualizacao() {
+        _atualizacaoDispensada.value = true
+    }
+
     private val _resumoDispensado =
         MutableStateFlow(prefs.getString(CHAVE_RESUMO_DISPENSADO, "").orEmpty())
 
@@ -143,6 +159,10 @@ class HomeViewModel @Inject constructor(
     }
 
     init {
+        // Checa (no máx. 1x/dia) se há versão nova no GitHub Releases
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { atualizacaoManager.verificar() }
+        }
         // Backup automático semanal (se ativado nas Configurações) — I/O de
         // arquivo fora da main thread
         viewModelScope.launch(Dispatchers.IO) {

@@ -1,5 +1,7 @@
 package com.finapp.ui.screen
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -18,6 +20,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -34,6 +37,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -373,6 +378,42 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // ---------- Atualização disponível (GitHub Releases) ----------
+    val atualizacao by viewModel.atualizacao.collectAsStateWithLifecycle()
+    atualizacao?.let { nova ->
+        val contexto = LocalContext.current
+        AlertDialog(
+            onDismissRequest = viewModel::dispensarAtualizacao,
+            title = { Text("Nova versão ${nova.versao} disponível") },
+            text = {
+                Text(
+                    if (nova.notas.isBlank()) {
+                        "Uma atualização do FinanApp está pronta para baixar."
+                    } else {
+                        nova.notas.take(600)
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        contexto.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(nova.urlDownload))
+                        )
+                        viewModel.dispensarAtualizacao()
+                    }
+                ) {
+                    Text("Baixar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dispensarAtualizacao) {
+                    Text("Agora não")
+                }
+            }
+        )
     }
 
     if (transferenciaAberta) {
