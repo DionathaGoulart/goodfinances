@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.finapp.data.PerfilManager
 import com.finapp.data.db.entities.Perfil
+import com.finapp.data.db.entities.TipoEmpresa
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
+import com.finapp.data.db.entities.ehEmpresa
 import com.finapp.data.repository.FinanceRepository
 import com.finapp.utils.Intervalo
 import com.finapp.utils.PeriodoFiltro
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
@@ -46,6 +49,21 @@ data class Estatisticas(
     val maiorGasto: Transacao? = null,
     val maiorGanho: Transacao? = null,
     val categoriaMaiorGasto: String? = null
+)
+
+/** Painel fiscal dos contextos de empresa. Valores em centavos. */
+data class PainelFiscal(
+    val faturamentoAno: Long,
+    val faturamentoMes: Long,
+    val hoje: LocalDate
+)
+
+/** Orçamento mensal de uma categoria de gasto vs o gasto do mês. Centavos. */
+data class OrcamentoCategoria(
+    val nome: String,
+    val cor: String,
+    val gastoMes: Long,
+    val orcamento: Long
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -77,12 +95,16 @@ class AnaliseViewModel @Inject constructor(
             PeriodoFiltro.MES.intervalo()!!
         )
 
-    /** Gastos agrupados por categoria no período, com a cor de cada uma — gráfico de pizza. */
-    val gastosPorCategoria: StateFlow<List<FatiaPizza>> =
-        combine(perfil, intervalo) { p, i -> p to i }
-            .flatMapLatest { (p, i) ->
+    /** Tipo exibido no gráfico de categorias (Gastos por padrão, alternável). */
+    private val _tipoCategoria = MutableStateFlow(TipoTransacao.GASTO)
+    val tipoCategoria: StateFlow<TipoTransacao> = _tipoCategoria.asStateFlow()
+
+    /** Somas por categoria no período (do tipo escolhido) — gráfico de pizza. */
+    val somasPorCategoria: StateFlow<List<FatiaPizza>> =
+        combine(perfil, intervalo, _tipoCategoria) { p, i, t -> Triple(p, i, t) }
+            .flatMapLatest { (p, i, t) ->
                 combine(
-                    repository.observarGastosPorCategoria(p, i.inicio, i.fim),
+                    repository.observarSomasPorCategoria(p, t, i.inicio, i.fim),
                     repository.observarCategorias(p)
                 ) { somas, categorias ->
                     somas.map { soma ->
@@ -96,6 +118,10 @@ class AnaliseViewModel @Inject constructor(
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun alterarTipoCategoria(tipo: TipoTransacao) {
+        _tipoCategoria.value = tipo
+    }
 
     /** Últimos 6 meses consolidados — gráficos de linha e barras. */
     val seriesMensais: StateFlow<List<ValorMensal>> =
@@ -116,6 +142,60 @@ class AnaliseViewModel @Inject constructor(
                     .map { transacoes -> calcularEstatisticas(transacoes, i) }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estatisticas())
+
+    /** Tipo da empresa (MEI/CNPJ) — muda o conteúdo do painel fiscal. */
+    val tipoEmpresa: StateFlow<TipoEmpresa?> = perfilManager.tipoEmpresa
+
+    /** Painel fiscal: só nos contextos de empresa (null nos demais). */
+    val painelFiscal: StateFlow<PainelFiscal?> =
+        combine(perfil, dataAtual) { p, hoje -> p to hoje }
+            .flatMapLatest { (p, hoje) ->
+                if (!p.ehEmpresa) {
+                    flowOf(null)
+                } else {
+                    combine(
+                        repository.observarGanhos(
+                            p,
+                            hoje.withDayOfYear(1),
+                            hoje.with(TemporalAdjusters.lastDayOfYear())
+                        ),
+                        repository.observarGanhos(
+                            p,
+                            hoje.withDayOfMonth(1),
+                            hoje.with(TemporalAdjusters.lastDayOfMonth())
+                        )
+                    ) { ano, mes -> PainelFiscal(ano, mes, hoje) }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Categorias de gasto com orçamento definido vs o gasto do mês corrente. */
+    val orcamentos: StateFlow<List<OrcamentoCategoria>> =
+        combine(perfil, dataAtual) { p, hoje -> p to hoje }
+            .flatMapLatest { (p, hoje) ->
+                combine(
+                    repository.observarGastosPorCategoria(
+                        p,
+                        hoje.withDayOfMonth(1),
+                        hoje.with(TemporalAdjusters.lastDayOfMonth())
+                    ),
+                    repository.observarCategorias(p)
+                ) { somas, categorias ->
+                    categorias
+                        .filter { it.tipo == TipoTransacao.GASTO && it.orcamentoMensal > 0 }
+                        .map { categoria ->
+                            OrcamentoCategoria(
+                                nome = categoria.nome,
+                                cor = categoria.cor,
+                                gastoMes = somas
+                                    .firstOrNull { it.categoria == categoria.nome }
+                                    ?.total ?: 0L,
+                                orcamento = categoria.orcamentoMensal
+                            )
+                        }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun alterarPeriodo(filtro: PeriodoFiltro) {
         _filtro.value = filtro
