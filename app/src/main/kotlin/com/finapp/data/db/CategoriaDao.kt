@@ -45,6 +45,14 @@ interface CategoriaDao {
     @Query("SELECT * FROM Categoria WHERE perfil = :perfil AND deletado = 0")
     suspend fun listarTodas(perfil: Perfil): List<Categoria>
 
+    /** Todas as linhas do perfil, INCLUSIVE tombstones — restauração de backup. */
+    @Query("SELECT * FROM Categoria WHERE perfil = :perfil")
+    suspend fun listarComTombstones(perfil: Perfil): List<Categoria>
+
+    /** Limpeza local (sair da casa) — NÃO usar em balde sincronizado ativo. */
+    @Query("DELETE FROM Categoria WHERE perfil = :perfil")
+    suspend fun deletarTodas(perfil: Perfil)
+
     /** Todos os uuids do perfil, INCLUSIVE tombstones — dedup de importação. */
     @Query("SELECT uuid FROM Categoria WHERE perfil = :perfil")
     suspend fun listarUuids(perfil: Perfil): List<String>

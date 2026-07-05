@@ -47,6 +47,10 @@ interface TransacaoRecorrenteDao {
         agora: Long
     )
 
+    /** Limpeza local (sair da casa) — NÃO usar em balde sincronizado ativo. */
+    @Query("DELETE FROM TransacaoRecorrente WHERE perfil = :perfil")
+    suspend fun deletarTodas(perfil: Perfil)
+
     /** Recorrências vencidas — devem gerar transações ao abrir o app. */
     @Query(
         """

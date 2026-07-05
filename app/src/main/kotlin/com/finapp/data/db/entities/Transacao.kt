@@ -30,5 +30,30 @@ data class Transacao(
     /** Tombstone: deleção é lógica para se propagar entre aparelhos. */
     val deletado: Boolean = false,
     /** Nome de quem lançou (só preenchido no perfil Casa). */
-    val criadoPor: String = ""
+    val criadoPor: String = "",
+    /** Uid Firebase de quem lançou (perfil Casa) — autoria à prova de nome repetido. */
+    val criadoPorUid: String = "",
+    /**
+     * Vincula as DUAS pernas de uma transferência entre contextos (mesmo
+     * valor nas duas). Deletar/restaurar uma perna afeta a outra.
+     * Vazio = transação comum.
+     */
+    val transferenciaId: String = "",
+    /**
+     * Nome do arquivo da nota fiscal em `filesDir/notas/` (vazio = sem nota).
+     * Disponível em todos os contextos; o arquivo é local e fica fora do sync.
+     */
+    val notaFiscal: String = ""
 )
+
+/**
+ * Na Casa, só quem lançou pode editar/apagar. Compara pelo uid quando
+ * disponível (à prova de nomes repetidos); lançamentos antigos só com nome
+ * comparam pelo nome; sem autor nenhum, continuam editáveis por todos.
+ */
+fun Transacao.podeSerEditadaPor(uid: String?, nomeUsuario: String?): Boolean = when {
+    perfil != Perfil.CASA -> true
+    criadoPorUid.isNotBlank() -> criadoPorUid == uid
+    criadoPor.isNotBlank() -> criadoPor == nomeUsuario
+    else -> true
+}

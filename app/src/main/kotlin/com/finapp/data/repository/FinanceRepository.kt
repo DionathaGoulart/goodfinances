@@ -1,6 +1,8 @@
 package com.finapp.data.repository
 
+import androidx.room.withTransaction
 import com.finapp.data.CategoriasPadrao
+import com.finapp.data.db.AppDatabase
 import com.finapp.data.db.CategoriaDao
 import com.finapp.data.db.ConfiguracaoPerfilDao
 import com.finapp.data.db.SomaPorCategoria
@@ -24,6 +26,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class FinanceRepository @Inject constructor(
+    private val db: AppDatabase,
     private val transacaoDao: TransacaoDao,
     private val categoriaDao: CategoriaDao,
     private val configuracaoPerfilDao: ConfiguracaoPerfilDao,
@@ -39,16 +42,64 @@ class FinanceRepository @Inject constructor(
     suspend fun atualizarTransacao(transacao: Transacao) =
         transacaoDao.atualizar(transacao.copy(atualizadoEm = agora()))
 
-    /** Deleção LÓGICA (tombstone) — necessária para propagar no sync. */
-    suspend fun deletarTransacao(transacao: Transacao) =
-        transacaoDao.atualizar(transacao.copy(deletado = true, atualizadoEm = agora()))
+    /**
+     * Deleção LÓGICA (tombstone) — necessária para propagar no sync.
+     * Transferências entre contextos apagam as DUAS pernas juntas.
+     */
+    suspend fun deletarTransacao(transacao: Transacao) {
+        val momento = agora()
+        pernasDaTransferencia(transacao).forEach {
+            transacaoDao.atualizar(it.copy(deletado = true, atualizadoEm = momento))
+        }
+    }
 
-    /** Desfaz uma deleção lógica (undo do swipe/modal). */
-    suspend fun restaurarTransacao(transacao: Transacao) =
-        transacaoDao.atualizar(transacao.copy(deletado = false, atualizadoEm = agora()))
+    /** Desfaz uma deleção lógica (undo do swipe/modal) — o par junto. */
+    suspend fun restaurarTransacao(transacao: Transacao) {
+        val momento = agora()
+        pernasDaTransferencia(transacao).forEach {
+            transacaoDao.atualizar(it.copy(deletado = false, atualizadoEm = momento))
+        }
+    }
 
-    /** Limpeza local definitiva (Configurações > Limpar Todos os Dados). */
-    suspend fun deletarTodasTransacoes(perfil: Perfil) = transacaoDao.deletarTodas(perfil)
+    /** A transação e, se for transferência, a perna no outro contexto. */
+    private suspend fun pernasDaTransferencia(transacao: Transacao): List<Transacao> =
+        if (transacao.transferenciaId.isBlank()) {
+            listOf(transacao)
+        } else {
+            transacaoDao.listarPorTransferencia(transacao.transferenciaId)
+                .ifEmpty { listOf(transacao) }
+        }
+
+    /**
+     * Limpeza definitiva (Configurações > Limpar Todos os Dados).
+     * Nos baldes do usuário vira tombstone — delete físico voltaria pelo
+     * sync (os docs continuam no Firestore) e não sumiria da Casa nem da
+     * visão Membros dos outros aparelhos. Só o espelho local CASA_MEMBROS
+     * (que nunca é empurrado) pode ser apagado de verdade.
+     */
+    suspend fun deletarTodasTransacoes(perfil: Perfil) =
+        if (perfil == Perfil.CASA_MEMBROS) {
+            transacaoDao.deletarTodas(perfil)
+        } else {
+            transacaoDao.marcarTodasDeletadas(perfil, agora())
+        }
+
+    /**
+     * Limpeza LOCAL ao sair de uma casa: apaga físico os baldes da Casa
+     * (transações, categorias, recorrentes e o espelho dos membros).
+     * Sem isso, entrar numa casa nova empurraria todo o histórico da
+     * antiga para ela (a marca de push da casa nova começa em zero).
+     */
+    suspend fun limparDadosLocaisDaCasa() {
+        transacaoDao.deletarTodas(Perfil.CASA)
+        transacaoDao.deletarTodas(Perfil.CASA_MEMBROS)
+        categoriaDao.deletarTodas(Perfil.CASA)
+        transacaoRecorrenteDao.deletarTodas(Perfil.CASA)
+    }
+
+    /** Arquivos de nota fiscal ainda referenciados — limpeza de órfãos. */
+    suspend fun listarNotasFiscaisReferenciadas(): List<String> =
+        transacaoDao.listarNotasFiscais()
 
     suspend fun obterTransacao(id: Long): Transacao? = transacaoDao.obterPorId(id)
 
@@ -85,6 +136,15 @@ class FinanceRepository @Inject constructor(
     ): Flow<List<SomaPorCategoria>> =
         transacaoDao.observarSomaPorCategoria(perfil, TipoTransacao.GASTO, inicio, fim)
 
+    /** Somas por categoria de um tipo (ganho OU gasto) — gráfico da Análise. */
+    fun observarSomasPorCategoria(
+        perfil: Perfil,
+        tipo: TipoTransacao,
+        inicio: LocalDate,
+        fim: LocalDate
+    ): Flow<List<SomaPorCategoria>> =
+        transacaoDao.observarSomaPorCategoria(perfil, tipo, inicio, fim)
+
     suspend fun somarPorTipo(
         perfil: Perfil,
         tipo: TipoTransacao,
@@ -120,6 +180,26 @@ class FinanceRepository @Inject constructor(
         }
     }
 
+    /**
+     * Garante a categoria "Transferência" nos baldes envolvidos numa
+     * transferência entre contextos (saída na origem, entrada no destino).
+     */
+    suspend fun garantirCategoriaTransferencia(origem: Perfil, destino: Perfil) {
+        garantirCategoria(origem, NOME_TRANSFERENCIA, TipoTransacao.GASTO)
+        garantirCategoria(destino, NOME_TRANSFERENCIA, TipoTransacao.GANHO)
+    }
+
+    private suspend fun garantirCategoria(perfil: Perfil, nome: String, tipo: TipoTransacao) {
+        val existe = categoriaDao.listarTodas(perfil).any {
+            it.nome.equals(nome, ignoreCase = true) && it.tipo == tipo
+        }
+        if (!existe) {
+            categoriaDao.inserir(
+                Categoria(nome = nome, tipo = tipo, cor = "#6B7280", perfil = perfil)
+            )
+        }
+    }
+
     /** Semeia as categorias padrão da Casa — chamado apenas por quem CRIA a casa. */
     suspend fun semearCategoriasCasa() {
         if (categoriaDao.contar(Perfil.CASA) == 0) {
@@ -128,12 +208,24 @@ class FinanceRepository @Inject constructor(
     }
 
     /**
-     * Renomeia/recolore uma categoria e propaga o novo nome para o
+     * Renomeia/recolore/reorça uma categoria e propaga o novo nome para o
      * histórico de transações e para as recorrências.
      */
-    suspend fun renomearCategoria(categoria: Categoria, novoNome: String, novaCor: String) {
+    suspend fun renomearCategoria(
+        categoria: Categoria,
+        novoNome: String,
+        novaCor: String,
+        novoOrcamento: Long = categoria.orcamentoMensal
+    ) {
         val momento = agora()
-        categoriaDao.atualizar(categoria.copy(nome = novoNome, cor = novaCor, atualizadoEm = momento))
+        categoriaDao.atualizar(
+            categoria.copy(
+                nome = novoNome,
+                cor = novaCor,
+                orcamentoMensal = novoOrcamento,
+                atualizadoEm = momento
+            )
+        )
         if (novoNome != categoria.nome) {
             transacaoDao.renomearCategoria(categoria.perfil, categoria.nome, novoNome, momento)
             transacaoRecorrenteDao.renomearCategoria(
@@ -152,9 +244,12 @@ class FinanceRepository @Inject constructor(
 
     /**
      * Importa transações e categorias para o perfil.
-     * [substituir] apaga as transações atuais antes; caso contrário mescla,
-     * ignorando duplicatas (mesma data + valor + categoria).
-     * Retorna quantas transações foram de fato inseridas.
+     * [substituir] tombstona as transações atuais antes (delete físico
+     * ressuscitaria pelo sync); caso contrário mescla, ignorando duplicatas
+     * (mesma data + valor + categoria).
+     * Uuid que existe como TOMBSTONE é restaurado com os dados do arquivo —
+     * é o que faz "Restaurar do Backup" funcionar depois de uma limpeza.
+     * Retorna quantas transações entraram (inseridas + restauradas).
      */
     suspend fun importarDados(
         transacoes: List<Transacao>,
@@ -162,34 +257,64 @@ class FinanceRepository @Inject constructor(
         perfil: Perfil,
         substituir: Boolean
     ): Int {
-        if (substituir) transacaoDao.deletarTodas(perfil)
+        if (substituir) deletarTodasTransacoes(perfil)
+        val momento = agora()
 
-        // Categorias: insere apenas as que ainda não existem (nome+tipo ou uuid,
-        // considerando tombstones para não violar o índice único)
-        val categoriasExistentes = categoriaDao.listarTodas(perfil)
-        val uuidsCategorias = categoriaDao.listarUuids(perfil).toHashSet()
-        val categoriasNovas = categorias.filter { nova ->
-            nova.uuid !in uuidsCategorias &&
-                categoriasExistentes.none {
+        // Categorias: restaura tombstones com mesmo uuid; insere só as que
+        // não existem (nome+tipo ou uuid, considerando tombstones para não
+        // violar o índice único)
+        val linhasCategorias = categoriaDao.listarComTombstones(perfil)
+        val categoriaPorUuid = linhasCategorias.associateBy { it.uuid }
+        val categoriasVivas = linhasCategorias.filter { !it.deletado }
+        val categoriasNovas = mutableListOf<Categoria>()
+        categorias.forEach { nova ->
+            val local = categoriaPorUuid[nova.uuid]
+            when {
+                local != null && local.deletado -> categoriaDao.atualizar(
+                    nova.copy(id = local.id, perfil = perfil, deletado = false, atualizadoEm = momento)
+                )
+                local != null -> Unit // já existe viva
+                categoriasVivas.any {
                     it.nome.equals(nova.nome, ignoreCase = true) && it.tipo == nova.tipo
-                }
-        }.map { it.copy(id = 0, perfil = perfil) }
+                } -> Unit
+                else -> categoriasNovas += nova.copy(id = 0, perfil = perfil)
+            }
+        }
         if (categoriasNovas.isNotEmpty()) categoriaDao.inserirTodas(categoriasNovas)
 
-        // Transações: dedup por data + valor + categoria E por uuid
-        val existentes = if (substituir) emptyList() else transacaoDao.listarTodas(perfil)
-        val chavesExistentes = existentes
+        // Transações: dedup por data + valor + categoria E por uuid;
+        // uuid tombstonado = restaurar com os dados do arquivo
+        val linhas = transacaoDao.listarComTombstones(perfil)
+        val porUuid = linhas.associateBy { it.uuid }
+        val chavesVivas = linhas
+            .filter { !it.deletado }
             .map { Triple(it.data, it.valor, it.categoria) }
             .toHashSet()
-        val uuidsExistentes = transacaoDao.listarUuids(perfil).toHashSet()
-        val novas = transacoes
-            .filter {
-                it.uuid !in uuidsExistentes &&
-                    Triple(it.data, it.valor, it.categoria) !in chavesExistentes
+        val novas = mutableListOf<Transacao>()
+        var restauradas = 0
+        transacoes.forEach { nova ->
+            val local = porUuid[nova.uuid]
+            when {
+                local != null && local.deletado -> {
+                    transacaoDao.atualizar(
+                        nova.copy(
+                            id = local.id,
+                            perfil = perfil,
+                            deletado = false,
+                            atualizadoEm = momento,
+                            // O arquivo da nota é local: mantém o que existir
+                            notaFiscal = local.notaFiscal.ifBlank { nova.notaFiscal }
+                        )
+                    )
+                    restauradas++
+                }
+                local != null -> Unit // já existe viva
+                Triple(nova.data, nova.valor, nova.categoria) in chavesVivas -> Unit
+                else -> novas += nova.copy(id = 0, perfil = perfil)
             }
-            .map { it.copy(id = 0, perfil = perfil) }
+        }
         if (novas.isNotEmpty()) transacaoDao.inserirTodas(novas)
-        return novas.size
+        return novas.size + restauradas
     }
 
     // ---------- Configuração do perfil ----------
@@ -224,31 +349,54 @@ class FinanceRepository @Inject constructor(
      * Lança as transações recorrentes vencidas e reagenda cada uma
      * conforme a frequência. Chamar ao abrir o app.
      */
-    suspend fun processarRecorrentesVencidas(hoje: LocalDate = LocalDate.now()) {
+    companion object {
+        /** Categoria automática das transferências entre contextos. */
+        const val NOME_TRANSFERENCIA = "Transferência"
+    }
+
+    /**
+     * [autorCasa]/[autorCasaUid]: autoria carimbada nos lançamentos gerados
+     * no balde CASA (sem isso qualquer membro poderia editá-los).
+     * Cada recorrência roda numa transação do Room: lançar as ocorrências e
+     * reagendar é atômico — cancelamento no meio não duplica lançamentos.
+     */
+    suspend fun processarRecorrentesVencidas(
+        hoje: LocalDate = LocalDate.now(),
+        autorCasa: String = "",
+        autorCasaUid: String = ""
+    ) {
         transacaoRecorrenteDao.obterVencidas(hoje).forEach { recorrente ->
-            var proxima = recorrente.proximoLancamento
-            // Lança todas as ocorrências pendentes (app pode ficar dias fechado)
-            while (!proxima.isAfter(hoje)) {
-                transacaoDao.inserir(
-                    Transacao(
-                        valor = recorrente.valor,
-                        tipo = recorrente.tipo,
-                        categoria = recorrente.categoria,
-                        descricao = recorrente.descricao,
-                        data = proxima,
-                        perfil = recorrente.perfil
+            db.withTransaction {
+                var proxima = recorrente.proximoLancamento
+                // Lança todas as ocorrências pendentes (app pode ficar dias fechado)
+                while (!proxima.isAfter(hoje)) {
+                    transacaoDao.inserir(
+                        Transacao(
+                            valor = recorrente.valor,
+                            tipo = recorrente.tipo,
+                            categoria = recorrente.categoria,
+                            descricao = recorrente.descricao,
+                            data = proxima,
+                            perfil = recorrente.perfil,
+                            criadoPor = if (recorrente.perfil == Perfil.CASA) autorCasa else "",
+                            criadoPorUid = if (recorrente.perfil == Perfil.CASA) {
+                                autorCasaUid
+                            } else {
+                                ""
+                            }
+                        )
                     )
-                )
-                proxima = when (recorrente.frequencia) {
-                    Frequencia.DIARIA -> proxima.plusDays(1)
-                    Frequencia.SEMANAL -> proxima.plusWeeks(1)
-                    Frequencia.MENSAL -> proxima.plusMonths(1)
-                    Frequencia.ANUAL -> proxima.plusYears(1)
+                    proxima = when (recorrente.frequencia) {
+                        Frequencia.DIARIA -> proxima.plusDays(1)
+                        Frequencia.SEMANAL -> proxima.plusWeeks(1)
+                        Frequencia.MENSAL -> proxima.plusMonths(1)
+                        Frequencia.ANUAL -> proxima.plusYears(1)
+                    }
                 }
+                transacaoRecorrenteDao.atualizar(
+                    recorrente.copy(proximoLancamento = proxima, atualizadoEm = agora())
+                )
             }
-            transacaoRecorrenteDao.atualizar(
-                recorrente.copy(proximoLancamento = proxima, atualizadoEm = agora())
-            )
         }
     }
 }
