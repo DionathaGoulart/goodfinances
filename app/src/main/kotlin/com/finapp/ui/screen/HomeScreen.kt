@@ -1,5 +1,6 @@
 package com.finapp.ui.screen
 
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,11 +15,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -32,34 +40,45 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.finapp.data.db.entities.ContextoMei
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
+import com.finapp.data.db.entities.ehEmpresa
 import com.finapp.ui.component.LucroCard
 import com.finapp.ui.component.ResumoCard
 import com.finapp.ui.component.SaldoCard
 import com.finapp.ui.component.TransacaoItemDismissivel
 import com.finapp.ui.component.TransacaoModal
-import com.finapp.ui.theme.BluAccent
+import com.finapp.ui.component.TransferenciaDialog
+import com.finapp.ui.component.VisaoMembros
 import com.finapp.ui.theme.GreenPrimary
+import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
 import com.finapp.viewmodel.HomeViewModel
+import com.finapp.viewmodel.ResumoMesAnterior
 import com.finapp.viewmodel.TransacaoViewModel
 import kotlinx.coroutines.launch
-import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 
-/** Dashboard: saldo, resumo do mês e últimas transações. */
+/**
+ * Dashboard: saldo, resumo do mês e últimas transações.
+ * [abrirModalInicial] = chegada pelo widget de lançamento rápido;
+ * [onLancamentoConsumido] avisa o chamador que o modal já abriu (one-shot).
+ */
 @Composable
 fun HomeScreen(
+    abrirModalInicial: Boolean = false,
+    onLancamentoConsumido: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
     transacaoViewModel: TransacaoViewModel = hiltViewModel()
 ) {
@@ -67,17 +86,27 @@ fun HomeScreen(
     val ganhos by viewModel.ganhosMes.collectAsStateWithLifecycle()
     val gastos by viewModel.gastosMes.collectAsStateWithLifecycle()
     val ultimas by viewModel.ultimasTransacoes.collectAsStateWithLifecycle()
-    val perfil by viewModel.perfil.collectAsStateWithLifecycle()
-    val contextoMei by viewModel.contextoMei.collectAsStateWithLifecycle()
+    val perfilDados by viewModel.perfilDados.collectAsStateWithLifecycle()
+    val contextos by viewModel.contextos.collectAsStateWithLifecycle()
     val casaConectada by viewModel.casaConectada.collectAsStateWithLifecycle()
+    val syncPessoalAtivo by viewModel.syncPessoalAtivo.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val escopo = rememberCoroutineScope()
 
-    var modalAberto by remember { mutableStateOf(false) }
+    var modalAberto by remember { mutableStateOf(abrirModalInicial) }
     var transacaoEmEdicao by remember { mutableStateOf<Transacao?>(null) }
+    // Consome o pedido do widget para não reabrir ao voltar pra aba
+    LaunchedEffect(Unit) {
+        if (abrirModalInicial) onLancamentoConsumido()
+    }
     // Toque no saldo alterna: total <-> mês
     var mostrandoSaldoMes by remember { mutableStateOf(false) }
+    // Sub-visão da Casa: carteira conjunta ("Da casa") ou finanças dos membros
+    var visaoMembros by rememberSaveable { mutableStateOf(false) }
+    val mostrandoMembros = perfilDados == Perfil.CASA && visaoMembros
+    // Transferência entre contextos (Pessoal / Empresa / Casa)
+    var transferenciaAberta by remember { mutableStateOf(false) }
 
     // Mensagens dos ViewModels (sucesso do modal, erros etc.) viram snackbar
     LaunchedEffect(Unit) {
@@ -87,8 +116,10 @@ fun HomeScreen(
         transacaoViewModel.mensagens.collect { snackbarHostState.showSnackbar(it) }
     }
 
-    val hoje = remember {
-        LocalDate.now()
+    // Reativa: vira sozinha à meia-noite (fluxoDataAtual)
+    val dataAtual by viewModel.dataAtual.collectAsStateWithLifecycle()
+    val hoje = remember(dataAtual) {
+        dataAtual
             .format(DateTimeFormatter.ofPattern("EEE, d 'DE' MMMM", Formatadores.LOCALE_BR))
             .uppercase(Formatadores.LOCALE_BR)
     }
@@ -97,18 +128,37 @@ fun HomeScreen(
         containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    transacaoEmEdicao = null
-                    modalAberto = true
-                },
-                containerColor = when (perfil) {
-                    Perfil.CNPJ -> BluAccent
-                    else -> GreenPrimary
-                },
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            ) {
-                Icon(imageVector = Icons.Filled.Add, contentDescription = "Adicionar transação")
+            // A visão Membros é somente leitura — sem botões de ação
+            if (!mostrandoMembros) {
+                Column(horizontalAlignment = Alignment.End) {
+                    // Transferir entre contextos (só quando há mais de um)
+                    if (contextos.size > 1) {
+                        SmallFloatingActionButton(
+                            onClick = { transferenciaAberta = true },
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.SwapHoriz,
+                                contentDescription = "Transferir entre contextos"
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                    FloatingActionButton(
+                        onClick = {
+                            transacaoEmEdicao = null
+                            modalAberto = true
+                        },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "Adicionar transação"
+                        )
+                    }
+                }
             }
         }
     ) { innerPadding ->
@@ -117,6 +167,29 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
+                // Deslizar para os lados troca o contexto (Pessoal/Empresa/Casa).
+                // Filhos com gesto horizontal próprio (swipe-delete, chips com
+                // scroll) continuam com prioridade — aqui só chega o que sobra.
+                .pointerInput(contextos, perfilDados) {
+                    if (contextos.size > 1) {
+                        var arrasto = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { arrasto = 0f },
+                            onDragEnd = {
+                                val limiar = 64.dp.toPx()
+                                val indice = contextos.indexOf(perfilDados)
+                                val destino = when {
+                                    arrasto <= -limiar -> indice + 1
+                                    arrasto >= limiar -> indice - 1
+                                    else -> -1
+                                }
+                                if (destino in contextos.indices) {
+                                    viewModel.mudarContexto(contextos[destino])
+                                }
+                            }
+                        ) { _, deslocamento -> arrasto += deslocamento }
+                    }
+                }
         ) {
             // Header minimalista: data + perfil ativo
             Spacer(modifier = Modifier.height(16.dp))
@@ -127,11 +200,16 @@ fun HomeScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
-                // No perfil Casa, nuvem indica que o sync está ativo
-                if (perfil == Perfil.CASA && casaConectada) {
+                // Nuvem indica sync ativo: da Casa ou dos dados pessoais
+                val sincronizando = if (perfilDados == Perfil.CASA) {
+                    casaConectada
+                } else {
+                    syncPessoalAtivo
+                }
+                if (sincronizando) {
                     Icon(
                         imageVector = Icons.Filled.CloudDone,
-                        contentDescription = "Sincronizando com a Casa",
+                        contentDescription = "Sincronizado com a nuvem",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
                             .size(14.dp)
@@ -140,30 +218,59 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.width(4.dp))
                 }
                 Text(
-                    text = perfil.rotulo.uppercase(Formatadores.LOCALE_BR),
+                    text = perfilDados.rotulo.uppercase(Formatadores.LOCALE_BR),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary
                 )
             }
 
-            // MEI: abas internas Pessoal | Negócio (dados separados)
-            if (perfil == Perfil.MEI) {
+            // Abas de contexto: Pessoal | Empresa | Casa (conforme o modo)
+            if (contextos.size > 1) {
                 Spacer(modifier = Modifier.height(12.dp))
                 TabRow(
-                    selectedTabIndex = contextoMei.ordinal,
+                    selectedTabIndex = contextos.indexOf(perfilDados).coerceAtLeast(0),
                     containerColor = Color.Transparent
                 ) {
-                    ContextoMei.entries.forEach { contexto ->
+                    contextos.forEach { contexto ->
                         Tab(
-                            selected = contextoMei == contexto,
-                            onClick = { viewModel.mudarContextoMei(contexto) },
+                            selected = perfilDados == contexto,
+                            onClick = { viewModel.mudarContexto(contexto) },
                             text = { Text(contexto.rotulo) }
                         )
                     }
                 }
             }
 
+            // Casa tem duas visões: carteira conjunta e finanças dos membros
+            if (perfilDados == Perfil.CASA) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !visaoMembros,
+                        onClick = { visaoMembros = false },
+                        label = { Text("Da casa") }
+                    )
+                    FilterChip(
+                        selected = visaoMembros,
+                        onClick = { visaoMembros = true },
+                        label = { Text("Membros") }
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
+
+            if (mostrandoMembros) {
+                VisaoMembros()
+                return@Column
+            }
+
+            // Fechamento do mês anterior (primeiros dias do mês, dispensável)
+            val resumoMes by viewModel.resumoMesAnterior.collectAsStateWithLifecycle()
+            resumoMes?.let { resumo ->
+                ResumoMesCard(resumo = resumo, onDispensar = viewModel::dispensarResumo)
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             SaldoCard(
                 saldo = if (mostrandoSaldoMes) ganhos - gastos else saldo,
@@ -174,8 +281,8 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // CNPJ usa vocabulário de empresa: Receita / Despesa + Lucro
-            val cnpj = perfil == Perfil.CNPJ
+            // Contexto de empresa usa vocabulário próprio: Receita / Despesa + Lucro
+            val cnpj = perfilDados.ehEmpresa
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -232,8 +339,10 @@ fun HomeScreen(
             } else {
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     items(ultimas, key = { it.id }) { transacao ->
+                        val podeEditar = viewModel.podeEditar(transacao)
                         TransacaoItemDismissivel(
                             transacao = transacao,
+                            permitirSwipe = podeEditar,
                             onDeletar = { deletada ->
                                 viewModel.deletarTransacao(deletada)
                                 escopo.launch {
@@ -248,14 +357,31 @@ fun HomeScreen(
                                 }
                             },
                             onClick = {
-                                transacaoEmEdicao = transacao
-                                modalAberto = true
+                                if (podeEditar) {
+                                    transacaoEmEdicao = transacao
+                                    modalAberto = true
+                                } else {
+                                    escopo.launch {
+                                        snackbarHostState.showSnackbar(
+                                            "Só quem lançou pode editar esta transação"
+                                        )
+                                    }
+                                }
                             }
                         )
                     }
                 }
             }
         }
+    }
+
+    if (transferenciaAberta) {
+        TransferenciaDialog(
+            origem = perfilDados,
+            destinos = contextos - perfilDados,
+            onTransferir = transacaoViewModel::transferir,
+            onFechar = { transferenciaAberta = false }
+        )
     }
 
     if (modalAberto) {
@@ -277,5 +403,83 @@ fun HomeScreen(
             },
             viewModel = transacaoViewModel
         )
+    }
+}
+
+/** Fechamento do mês anterior: ganhos, gastos e saldo, com botão de dispensar. */
+@Composable
+private fun ResumoMesCard(resumo: ResumoMesAnterior, onDispensar: () -> Unit) {
+    val nomeMes = resumo.mes.month
+        .getDisplayName(TextStyle.FULL, Formatadores.LOCALE_BR)
+        .replaceFirstChar { it.uppercase(Formatadores.LOCALE_BR) }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(start = 16.dp, end = 8.dp, bottom = 12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "SEU $nomeMes FECHOU",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onDispensar) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Dispensar resumo"
+                    )
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Ganhos",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = Formatadores.moeda(resumo.ganhos),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = GreenPrimary
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Gastos",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = Formatadores.moeda(resumo.gastos),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = RedExpense
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Saldo",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = Formatadores.moeda(resumo.saldo),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (resumo.saldo >= 0) GreenPrimary else RedExpense
+                    )
+                }
+            }
+            if (resumo.saldo > 0) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Você economizou ${Formatadores.moeda(resumo.saldo)} em $nomeMes",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
