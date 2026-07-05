@@ -2,12 +2,13 @@ package com.finapp.viewmodel
 
 import androidx.lifecycle.ViewModel
 import com.finapp.data.PerfilManager
-import com.finapp.data.db.entities.Perfil
+import com.finapp.data.db.entities.ModoUso
+import com.finapp.data.db.entities.TipoEmpresa
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
 
-/** Controla a seleção inicial de perfil (primeira abertura do app). */
+/** Controla a seleção inicial do modo de uso (primeira abertura do app). */
 @HiltViewModel
 class PerfilViewModel @Inject constructor(
     private val perfilManager: PerfilManager
@@ -15,5 +16,9 @@ class PerfilViewModel @Inject constructor(
 
     val perfilFoiEscolhido: StateFlow<Boolean> = perfilManager.perfilFoiEscolhido
 
-    fun escolherPerfil(perfil: Perfil) = perfilManager.mudarPerfil(perfil)
+    /** Conclui o onboarding: modo de uso + tipo da empresa (quando houver). */
+    fun escolherModo(modo: ModoUso, tipoEmpresa: TipoEmpresa?) {
+        tipoEmpresa?.let(perfilManager::definirTipoEmpresa)
+        perfilManager.mudarModo(modo)
+    }
 }
