@@ -17,6 +17,7 @@ import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,27 +28,41 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.finapp.data.db.entities.TipoEmpresa
+import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.ui.component.GraficoBarras
 import com.finapp.ui.component.GraficoLinha
 import com.finapp.ui.component.GraficoPizza
 import com.finapp.ui.theme.BluAccent
+import com.finapp.ui.theme.OrangeAlert
+import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
 import com.finapp.utils.PeriodoFiltro
 import com.finapp.viewmodel.AnaliseViewModel
+import com.finapp.viewmodel.OrcamentoCategoria
+import com.finapp.viewmodel.PainelFiscal
 import java.time.Instant
 import java.time.ZoneOffset
+import java.time.format.TextStyle
+import kotlin.math.roundToInt
 
 /** Tela de Análise: gráficos e estatísticas do período. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
     val filtro by viewModel.filtro.collectAsStateWithLifecycle()
-    val fatias by viewModel.gastosPorCategoria.collectAsStateWithLifecycle()
+    val fatias by viewModel.somasPorCategoria.collectAsStateWithLifecycle()
+    val tipoCategoria by viewModel.tipoCategoria.collectAsStateWithLifecycle()
     val series by viewModel.seriesMensais.collectAsStateWithLifecycle()
     val estatisticas by viewModel.estatisticas.collectAsStateWithLifecycle()
+    val painelFiscal by viewModel.painelFiscal.collectAsStateWithLifecycle()
+    val tipoEmpresa by viewModel.tipoEmpresa.collectAsStateWithLifecycle()
+    val orcamentos by viewModel.orcamentos.collectAsStateWithLifecycle()
 
     var rangePickerAberto by remember { mutableStateOf(false) }
 
@@ -90,8 +105,38 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // ---------- Pizza: gastos por categoria ----------
-        SecaoGrafico(titulo = "GASTOS POR CATEGORIA") {
+        // ---------- Painel fiscal (só nos contextos de empresa) ----------
+        painelFiscal?.let { painel ->
+            PainelFiscalCard(painel = painel, tipoEmpresa = tipoEmpresa)
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
+        // ---------- Orçamentos do mês (categorias com teto definido) ----------
+        if (orcamentos.isNotEmpty()) {
+            SecaoOrcamentos(orcamentos = orcamentos)
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
+        // ---------- Pizza: ganhos/gastos por categoria ----------
+        val tituloPizza = if (tipoCategoria == TipoTransacao.GASTO) {
+            "GASTOS POR CATEGORIA"
+        } else {
+            "GANHOS POR CATEGORIA"
+        }
+        SecaoGrafico(titulo = tituloPizza) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = tipoCategoria == TipoTransacao.GASTO,
+                    onClick = { viewModel.alterarTipoCategoria(TipoTransacao.GASTO) },
+                    label = { Text("Gastos") }
+                )
+                FilterChip(
+                    selected = tipoCategoria == TipoTransacao.GANHO,
+                    onClick = { viewModel.alterarTipoCategoria(TipoTransacao.GANHO) },
+                    label = { Text("Ganhos") }
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
             GraficoPizza(fatias = fatias)
         }
 
@@ -193,6 +238,171 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
                     )
                 }
             )
+        }
+    }
+}
+
+/** Limite anual de faturamento do MEI, em centavos (R$ 81.000,00). */
+private const val LIMITE_MEI_CENTAVOS = 8_100_000L
+
+/** Faturamento do ano/mês + limite do MEI + lembrete do DAS. */
+@Composable
+private fun PainelFiscalCard(painel: PainelFiscal, tipoEmpresa: TipoEmpresa?) {
+    val rotulo = tipoEmpresa?.let { " — ${it.rotulo}" }.orEmpty()
+    Text(
+        text = "PAINEL FISCAL$rotulo",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Faturamento do ano",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = Formatadores.moeda(painel.faturamentoAno),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Faturamento do mês",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = Formatadores.moeda(painel.faturamentoMes),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            // Limite anual: exclusivo do MEI (CNPJ não tem teto fixo)
+            if (tipoEmpresa == TipoEmpresa.MEI) {
+                Spacer(modifier = Modifier.height(12.dp))
+                val fracao =
+                    (painel.faturamentoAno.toDouble() / LIMITE_MEI_CENTAVOS).toFloat()
+                val corBarra = when {
+                    fracao >= 1f -> RedExpense
+                    fracao >= 0.8f -> OrangeAlert
+                    else -> MaterialTheme.colorScheme.primary
+                }
+                LinearProgressIndicator(
+                    progress = { fracao.coerceIn(0f, 1f) },
+                    color = corBarra,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "${(fracao * 100).roundToInt()}% do limite anual do MEI " +
+                        "(${Formatadores.moeda(LIMITE_MEI_CENTAVOS)})",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (fracao >= 0.8f) {
+                    Text(
+                        text = if (fracao >= 1f) {
+                            "Limite estourado — procure seu contador sobre o desenquadramento"
+                        } else {
+                            "Atenção: você está chegando perto do limite do MEI"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (fracao >= 1f) RedExpense else OrangeAlert
+                    )
+                }
+            }
+
+            // Lembrete do DAS (MEI e Simples Nacional vencem dia 20)
+            Spacer(modifier = Modifier.height(12.dp))
+            val guia = if (tipoEmpresa == TipoEmpresa.MEI) "DAS-MEI" else "DAS (Simples Nacional)"
+            val mesNome = painel.hoje.month
+                .getDisplayName(TextStyle.FULL, Formatadores.LOCALE_BR)
+            val dia = painel.hoje.dayOfMonth
+            val (textoDas, corDas) = when {
+                dia == 20 -> "$guia de $mesNome vence HOJE" to RedExpense
+                dia < 20 -> {
+                    val texto = "$guia de $mesNome vence dia 20 — faltam ${20 - dia} dias"
+                    texto to if (20 - dia <= 5) OrangeAlert else {
+                        null // cor padrão aplicada abaixo
+                    }
+                }
+                else -> "$guia de $mesNome venceu dia 20" to null
+            }
+            Text(
+                text = textoDas,
+                style = MaterialTheme.typography.bodyMedium,
+                color = corDas ?: MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/** Barras de progresso das categorias de gasto com orçamento definido. */
+@Composable
+private fun SecaoOrcamentos(orcamentos: List<OrcamentoCategoria>) {
+    Text(
+        text = "ORÇAMENTOS DO MÊS",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            orcamentos.forEachIndexed { indice, orcamento ->
+                if (indice > 0) Spacer(modifier = Modifier.height(14.dp))
+
+                val fracao = (orcamento.gastoMes.toDouble() / orcamento.orcamento).toFloat()
+                val corBarra = when {
+                    fracao >= 1f -> RedExpense
+                    fracao >= 0.8f -> OrangeAlert
+                    else -> runCatching { Color(orcamento.cor.toColorInt()) }
+                        .getOrDefault(MaterialTheme.colorScheme.primary)
+                }
+
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = orcamento.nome,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "${Formatadores.moeda(orcamento.gastoMes)} / " +
+                            Formatadores.moeda(orcamento.orcamento),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (fracao >= 1f) RedExpense
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                LinearProgressIndicator(
+                    progress = { fracao.coerceIn(0f, 1f) },
+                    color = corBarra,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (fracao >= 1f) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Estourou em " +
+                            Formatadores.moeda(orcamento.gastoMes - orcamento.orcamento),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = RedExpense
+                    )
+                }
+            }
         }
     }
 }
