@@ -5,17 +5,24 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.finapp.data.AparenciaManager
 import com.finapp.data.PerfilManager
+import com.finapp.data.SegurancaManager
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.ConfiguracaoPerfil
 import com.finapp.data.db.entities.Frequencia
+import com.finapp.data.db.entities.ModoUso
 import com.finapp.data.db.entities.Perfil
+import com.finapp.data.db.entities.TipoEmpresa
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.TransacaoRecorrente
+import android.app.PendingIntent
 import com.finapp.data.io.BackupManager
 import com.finapp.data.io.DadosImportados
+import com.finapp.data.io.DriveBackupManager
 import com.finapp.data.io.ExportManager
 import com.finapp.data.io.ImportManager
+import com.finapp.data.io.NotaFiscalManager
 import com.finapp.data.repository.FinanceRepository
+import com.finapp.data.sync.SyncManager
 import com.finapp.utils.CorApp
 import com.finapp.utils.EscalaFonte
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,20 +50,65 @@ class ConfigViewModel @Inject constructor(
     private val exportManager: ExportManager,
     private val importManager: ImportManager,
     private val backupManager: BackupManager,
-    private val aparenciaManager: AparenciaManager
+    private val aparenciaManager: AparenciaManager,
+    private val notaFiscalManager: NotaFiscalManager,
+    private val segurancaManager: SegurancaManager,
+    private val syncManager: SyncManager,
+    private val driveBackupManager: DriveBackupManager
 ) : ViewModel() {
+
+    // ---------- Sincronização entre aparelhos ----------
+
+    val syncPessoalAtivado: StateFlow<Boolean> = syncManager.syncPessoalAtivado
+
+    fun alternarSyncPessoal(ativo: Boolean) {
+        syncManager.alternarSyncPessoal(ativo)
+        emitir(
+            if (ativo) "Sincronização ativada — seus dados sobem para a sua conta"
+            else "Sincronização desativada"
+        )
+    }
+
+    /** Espelhar meus lançamentos pessoais na visão Membros da casa. */
+    val compartilharCasaAtivado: StateFlow<Boolean> = syncManager.compartilharCasaAtivado
+
+    fun alternarCompartilharCasa(ativo: Boolean) {
+        syncManager.alternarCompartilharCasa(ativo)
+        emitir(
+            if (ativo) "Compartilhando com a casa — aparece na visão Membros"
+            else "Você não aparece mais na visão Membros"
+        )
+    }
+
+    // ---------- Segurança ----------
+
+    val bloqueioAtivado: StateFlow<Boolean> = segurancaManager.bloqueioAtivado
+
+    fun alternarBloqueio(ativo: Boolean) {
+        segurancaManager.alternarBloqueio(ativo)
+        emitir(
+            if (ativo) "Bloqueio ativado — será pedido ao abrir o app"
+            else "Bloqueio desativado"
+        )
+    }
 
     // ---------- Aparência ----------
 
     val escalaFonte: StateFlow<EscalaFonte> = aparenciaManager.escalaFonte
-    val corPrimaria: StateFlow<CorApp> = aparenciaManager.corPrimaria
+    val corPessoal: StateFlow<CorApp> = aparenciaManager.corPessoal
+    val corEmpresa: StateFlow<CorApp> = aparenciaManager.corEmpresa
 
     fun definirEscalaFonte(escala: EscalaFonte) = aparenciaManager.definirEscalaFonte(escala)
 
-    fun definirCorPrimaria(cor: CorApp) = aparenciaManager.definirCorPrimaria(cor)
+    fun definirCorPessoal(cor: CorApp) = aparenciaManager.definirCorPessoal(cor)
 
-    /** Perfil escolhido pelo usuário (para o seletor de perfil). */
+    fun definirCorEmpresa(cor: CorApp) = aparenciaManager.definirCorEmpresa(cor)
+
+    /** Perfil escolhido pelo usuário (para o seletor de modo de uso). */
     val perfil: StateFlow<Perfil> = perfilManager.perfilAtivo
+
+    /** Tipo da empresa (MEI/CNPJ) — só relevante nos modos com empresa. */
+    val tipoEmpresa: StateFlow<TipoEmpresa?> = perfilManager.tipoEmpresa
 
     /** Balde de dados efetivo (no MEI, acompanha a aba Pessoal/Negócio). */
     private val perfilDados: StateFlow<Perfil> = perfilManager.perfilDados
@@ -86,7 +138,14 @@ class ConfigViewModel @Inject constructor(
 
     fun mudarPerfil(novo: Perfil) {
         perfilManager.mudarPerfil(novo)
-        emitir("Perfil alterado para ${novo.rotulo}")
+        emitir("Modo alterado para ${novo.rotulo}")
+    }
+
+    fun mudarModo(modo: ModoUso) = mudarPerfil(modo.perfil)
+
+    fun definirTipoEmpresa(tipo: TipoEmpresa) {
+        perfilManager.definirTipoEmpresa(tipo)
+        emitir("Empresa marcada como ${tipo.rotulo}")
     }
 
     /** [salarioCentavos] em centavos. Mantém uma recorrência mensal de ganho em sincronia. */
@@ -197,11 +256,20 @@ class ConfigViewModel @Inject constructor(
         }
     }
 
-    /** Renomeia/recolore uma categoria, propagando o nome para o histórico. */
-    fun editarCategoria(categoria: Categoria, novoNome: String, novaCor: String) {
+    /** Renomeia/recolore/reorça uma categoria, propagando o nome para o histórico. */
+    fun editarCategoria(
+        categoria: Categoria,
+        novoNome: String,
+        novaCor: String,
+        novoOrcamentoCentavos: Long = categoria.orcamentoMensal
+    ) {
         val nomeLimpo = novoNome.trim()
         if (nomeLimpo.isEmpty()) {
             emitir("Informe o nome da categoria")
+            return
+        }
+        if (novoOrcamentoCentavos < 0L) {
+            emitir("Orçamento inválido")
             return
         }
         viewModelScope.launch {
@@ -214,7 +282,9 @@ class ConfigViewModel @Inject constructor(
                 emitir("Categoria \"$nomeLimpo\" já existe")
                 return@launch
             }
-            runCatching { repository.renomearCategoria(categoria, nomeLimpo, novaCor) }
+            runCatching {
+                repository.renomearCategoria(categoria, nomeLimpo, novaCor, novoOrcamentoCentavos)
+            }
                 .onSuccess { emitir("Categoria atualizada") }
                 .onFailure { emitir("Erro ao atualizar categoria") }
         }
@@ -287,6 +357,23 @@ class ConfigViewModel @Inject constructor(
         }
     }
 
+    /**
+     * ZIP do contexto ativo: CSV + notas fiscais organizadas por ano/mês
+     * (para o imposto de renda / contador).
+     */
+    fun exportarZip(uri: Uri?) {
+        if (uri == null) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val transacoes = repository.listarTransacoes(perfilDados.value)
+                exportManager.exportarZip(uri, transacoes)
+                transacoes.count { it.notaFiscal.isNotBlank() }
+            }
+                .onSuccess { emitir("ZIP exportado ($it notas fiscais)") }
+                .onFailure { emitir(it.message ?: "Erro ao exportar ZIP") }
+        }
+    }
+
     /** Lê e valida o arquivo; se ok, preenche a prévia para o dialog. */
     fun prepararImportacao(uri: Uri?) {
         if (uri == null) return
@@ -318,6 +405,83 @@ class ConfigViewModel @Inject constructor(
         _previaImportacao.value = null
     }
 
+    // ---------- Backup das notas fiscais no Google Drive ----------
+
+    val backupDriveAtivado: StateFlow<Boolean> = driveBackupManager.ativado
+
+    /** Consentimento do Google pendente — a UI lança este PendingIntent. */
+    private val _pedidoAutorizacaoDrive = MutableSharedFlow<PendingIntent>()
+    val pedidoAutorizacaoDrive: SharedFlow<PendingIntent> = _pedidoAutorizacaoDrive
+
+    /**
+     * Liga/desliga o backup das notas no Drive. Ao ligar, pede o escopo:
+     * se o Google exigir consentimento, emite o PendingIntent para a UI
+     * e a ativação termina em [concluirAtivacaoDrive] (chamado no OK).
+     */
+    fun alternarBackupDrive(ativo: Boolean) {
+        if (!ativo) {
+            driveBackupManager.alternar(false)
+            emitir("Backup das notas no Drive desativado")
+            return
+        }
+        viewModelScope.launch {
+            runCatching { driveBackupManager.pedirAutorizacao() }
+                .onSuccess { pendente ->
+                    if (pendente != null) {
+                        _pedidoAutorizacaoDrive.emit(pendente)
+                    } else {
+                        concluirAtivacaoDrive()
+                    }
+                }
+                .onFailure {
+                    emitir("Não deu para conectar ao Google Drive — faça login e tente de novo")
+                }
+        }
+    }
+
+    /** Fecha a ativação (direto ou após o consentimento) e sobe as notas. */
+    fun concluirAtivacaoDrive() {
+        driveBackupManager.alternar(true)
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                driveBackupManager.sincronizarNotas(
+                    repository.listarNotasFiscaisReferenciadas()
+                )
+            }
+                .onSuccess { n ->
+                    emitir(
+                        if (n > 0) "Backup no Drive ativado ($n notas enviadas)"
+                        else "Backup no Drive ativado"
+                    )
+                }
+                .onFailure {
+                    emitir("Drive ativado — as notas sobem no próximo backup")
+                }
+        }
+    }
+
+    /** Baixa do Drive as notas que não estão neste aparelho. */
+    fun restaurarNotasDrive() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { driveBackupManager.restaurarNotas() }
+                .onSuccess { n ->
+                    emitir(
+                        if (n > 0) "$n notas restauradas do Drive"
+                        else "Nenhuma nota nova para restaurar"
+                    )
+                }
+                .onFailure { erro ->
+                    emitir(
+                        if (erro.message?.contains("não autorizado") == true) {
+                            "Ative o backup no Drive primeiro"
+                        } else {
+                            "Erro ao restaurar do Drive — verifique a conexão"
+                        }
+                    )
+                }
+        }
+    }
+
     fun alternarBackupAutomatico(ativo: Boolean) {
         backupManager.alternar(ativo)
         if (ativo) {
@@ -342,11 +506,37 @@ class ConfigViewModel @Inject constructor(
         }
     }
 
-    /** Ação irreversível — a UI deve confirmar antes com dialog. */
-    fun limparTodosDados() {
-        viewModelScope.launch {
-            runCatching { repository.deletarTodasTransacoes(perfilDados.value) }
-                .onSuccess { emitir("Todos os dados do perfil foram apagados") }
+    /**
+     * Ação irreversível — a UI confirma antes com dialog.
+     * [todosContextos] limpa todos os baldes locais do usuário (Pessoal,
+     * os dois lados do modo misto e Empresa); a Casa é compartilhada e só
+     * é limpa quando ELA é o contexto ativo. Depois, reconstrói o espelho
+     * da visão Membros (remove inclusive órfãos de versões antigas).
+     */
+    fun limparTodosDados(todosContextos: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val baldes = if (todosContextos) {
+                    Perfil.BALDES_DADOS - Perfil.CASA
+                } else {
+                    listOf(perfilDados.value)
+                }
+                baldes.forEach { balde ->
+                    // Apaga também os arquivos de nota fiscal do balde
+                    repository.listarTransacoes(balde)
+                        .forEach { notaFiscalManager.apagar(it.notaFiscal) }
+                    repository.deletarTodasTransacoes(balde)
+                }
+                // Feed da visão Membros: zera e deixa o push re-espelhar
+                // só o que sobrou (sem isso, órfãos antigos ficam para sempre)
+                runCatching { syncManager.ressincronizarEspelho() }
+            }
+                .onSuccess {
+                    emitir(
+                        if (todosContextos) "Todos os contextos deste aparelho foram limpos"
+                        else "Todos os dados do contexto foram apagados"
+                    )
+                }
                 .onFailure { emitir("Erro ao apagar dados") }
         }
     }

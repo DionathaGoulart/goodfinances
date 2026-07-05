@@ -3,6 +3,8 @@ package com.finapp.ui.screen
 import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.biometric.BiometricManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -24,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
@@ -63,6 +66,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.finapp.BuildConfig
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.Perfil
+import com.finapp.data.db.entities.TipoEmpresa
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.CorApp
@@ -89,7 +93,8 @@ fun ConfigScreen(
     val configuracao by viewModel.configuracao.collectAsStateWithLifecycle()
     val categorias by viewModel.categorias.collectAsStateWithLifecycle()
     val escalaFonte by viewModel.escalaFonte.collectAsStateWithLifecycle()
-    val corPrimaria by viewModel.corPrimaria.collectAsStateWithLifecycle()
+    val corPessoal by viewModel.corPessoal.collectAsStateWithLifecycle()
+    val corEmpresa by viewModel.corEmpresa.collectAsStateWithLifecycle()
     val contexto = LocalContext.current
 
     var dialogSalarioAberto by remember { mutableStateOf(false) }
@@ -124,18 +129,15 @@ fun ConfigScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // ---------- Perfil ----------
+        // ---------- Modo de uso ----------
         Text(
-            text = "PERFIL",
+            text = "MODO DE USO",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(8.dp))
 
-        // A Casa só aparece como opção quando o usuário faz parte de uma
-        val opcoesPerfil =
-            if (casa != null) Perfil.PRINCIPAIS + Perfil.CASA else Perfil.PRINCIPAIS
-        opcoesPerfil.forEach { opcao ->
+        Perfil.PRINCIPAIS.forEach { opcao ->
             val selecionado = perfil == opcao
             Card(
                 onClick = { if (!selecionado) viewModel.mudarPerfil(opcao) },
@@ -182,10 +184,32 @@ fun ConfigScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Ao trocar de perfil, os dados dos demais perfis permanecem salvos.",
+            text = "Ao trocar de modo, os dados dos demais continuam salvos.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        // Tipo da empresa (só nos modos que têm empresa)
+        if (perfil == Perfil.MEI || perfil == Perfil.CNPJ) {
+            val tipoEmpresa by viewModel.tipoEmpresa.collectAsStateWithLifecycle()
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Minha empresa é:",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                TipoEmpresa.entries.forEach { tipo ->
+                    FilterChip(
+                        selected = tipoEmpresa == tipo,
+                        onClick = { viewModel.definirTipoEmpresa(tipo) },
+                        label = { Text(tipo.rotulo) },
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(32.dp))
 
@@ -305,11 +329,34 @@ fun ConfigScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Selecione o perfil \"Casa\" acima para usar a " +
-                                "carteira compartilhada.",
+                            text = "A Casa aparece como aba na tela inicial.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Visão Membros: cada um decide expor o próprio pessoal
+                        val compartilhar by viewModel.compartilharCasaAtivado
+                            .collectAsStateWithLifecycle()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Compartilhar meus lançamentos pessoais",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Os membros veem seus ganhos/gastos pessoais " +
+                                        "na visão Membros. A empresa fica de fora.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = compartilhar,
+                                onCheckedChange = viewModel::alternarCompartilharCasa
+                            )
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Row {
                             TextButton(
@@ -323,6 +370,50 @@ fun ConfigScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // ---------- Sincronização entre aparelhos (precisa estar logado) ----------
+        if (usuario != null) {
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                text = "SINCRONIZAÇÃO",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val syncPessoalAtivado by viewModel.syncPessoalAtivado.collectAsStateWithLifecycle()
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Sincronizar entre aparelhos",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Transações e categorias de todos os modos, na sua " +
+                                "conta Google. Notas fiscais ficam só neste aparelho.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = syncPessoalAtivado,
+                        onCheckedChange = viewModel::alternarSyncPessoal
+                    )
                 }
             }
         }
@@ -497,6 +588,9 @@ fun ConfigScreen(
         val importar = rememberLauncherForActivityResult(
             ActivityResultContracts.OpenDocument()
         ) { viewModel.prepararImportacao(it) }
+        val exportZip = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/zip")
+        ) { viewModel.exportarZip(it) }
 
         ItemDados(
             icone = Icons.Filled.FileDownload,
@@ -517,6 +611,12 @@ fun ConfigScreen(
             icone = Icons.Filled.FileUpload,
             titulo = "Importar Dados (CSV ou JSON)",
             onClick = { importar.launch(arrayOf("*/*")) }
+        )
+        ItemDados(
+            icone = Icons.AutoMirrored.Filled.ReceiptLong,
+            titulo = "Exportar Notas Fiscais (ZIP)",
+            subtitulo = "Tudo organizado por ano e mês — pronto para o imposto",
+            onClick = { exportZip.launch("FinanApp_Notas_$hoje.zip") }
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -558,6 +658,116 @@ fun ConfigScreen(
             onClick = viewModel::restaurarBackup
         )
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Backup das notas fiscais no Google Drive (conta logada)
+        val backupDriveAtivado by viewModel.backupDriveAtivado.collectAsStateWithLifecycle()
+        val autorizarDrive = rememberLauncherForActivityResult(
+            ActivityResultContracts.StartIntentSenderForResult()
+        ) { resultado ->
+            if (resultado.resultCode == android.app.Activity.RESULT_OK) {
+                viewModel.concluirAtivacaoDrive()
+            }
+        }
+        LaunchedEffect(Unit) {
+            viewModel.pedidoAutorizacaoDrive.collect { pendente ->
+                autorizarDrive.launch(
+                    IntentSenderRequest.Builder(pendente.intentSender).build()
+                )
+            }
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Notas fiscais no Google Drive",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Guarda os arquivos das notas na sua conta Google (grátis)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = backupDriveAtivado,
+                    onCheckedChange = viewModel::alternarBackupDrive
+                )
+            }
+        }
+        if (backupDriveAtivado) {
+            Spacer(modifier = Modifier.height(8.dp))
+            ItemDados(
+                icone = Icons.Filled.Restore,
+                titulo = "Restaurar Notas do Drive",
+                subtitulo = "Baixa as notas que não estão neste aparelho",
+                onClick = viewModel::restaurarNotasDrive
+            )
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // ---------- Segurança ----------
+        Text(
+            text = "SEGURANÇA",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        val bloqueioAtivado by viewModel.bloqueioAtivado.collectAsStateWithLifecycle()
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Bloqueio por biometria",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Pede digital ou PIN do aparelho ao abrir o app",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = bloqueioAtivado,
+                    onCheckedChange = { ativo ->
+                        val disponivel = BiometricManager.from(contexto).canAuthenticate(
+                            BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                        ) == BiometricManager.BIOMETRIC_SUCCESS
+                        if (ativo && !disponivel) {
+                            Toast.makeText(
+                                contexto,
+                                "Configure biometria ou bloqueio de tela no Android antes",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            viewModel.alternarBloqueio(ativo)
+                        }
+                    }
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(32.dp))
 
         // ---------- Aparência ----------
@@ -593,31 +803,25 @@ fun ConfigScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        Text(
-            text = "Cor Primária",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface
+        SeletorCorTema(
+            titulo = "Cor do tema pessoal",
+            corSelecionada = corPessoal,
+            onSelecionar = viewModel::definirCorPessoal
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            CorApp.entries.forEach { cor ->
-                val selecionada = corPrimaria == cor
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color(cor.hex.toColorInt()))
-                        .let {
-                            if (selecionada) {
-                                it.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                            } else {
-                                it
-                            }
-                        }
-                        .clickable { viewModel.definirCorPrimaria(cor) }
-                )
-            }
-        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SeletorCorTema(
+            titulo = "Cor do tema empresa",
+            corSelecionada = corEmpresa,
+            onSelecionar = viewModel::definirCorEmpresa
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "O app troca de cor sozinho ao alternar entre pessoal e empresa.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         Spacer(modifier = Modifier.height(32.dp))
 
@@ -694,17 +898,10 @@ fun ConfigScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        // Aceita "3.500,50" (BR) e "3500.50" (ponto decimal)
-                        val limpo = salarioTexto.trim()
-                        val reais = (
-                            if (limpo.contains(',')) {
-                                limpo.replace(".", "").replace(',', '.')
-                            } else {
-                                limpo
-                            }
-                            ).toDoubleOrNull()
-                        val centavos = reais?.let { (it * 100).roundToLong() } ?: -1L
-                        viewModel.atualizarSalario(centavos, diaTexto.toIntOrNull() ?: 0)
+                        viewModel.atualizarSalario(
+                            reaisParaCentavos(salarioTexto),
+                            diaTexto.toIntOrNull() ?: 0
+                        )
                         dialogSalarioAberto = false
                     }
                 ) {
@@ -771,10 +968,19 @@ fun ConfigScreen(
         )
     }
 
-    // ---------- Dialog: editar categoria (renomear / recolorir) ----------
+    // ---------- Dialog: editar categoria (renomear / recolorir / orçamento) ----------
     categoriaEmEdicao?.let { categoria ->
         var nome by remember(categoria.id) { mutableStateOf(categoria.nome) }
         var cor by remember(categoria.id) { mutableStateOf(categoria.cor) }
+        var orcamentoTexto by remember(categoria.id) {
+            mutableStateOf(
+                if (categoria.orcamentoMensal > 0L) {
+                    String.format(Locale.US, "%.2f", categoria.orcamentoMensal / 100.0)
+                } else {
+                    ""
+                }
+            )
+        }
 
         AlertDialog(
             onDismissRequest = { categoriaEmEdicao = null },
@@ -787,11 +993,25 @@ fun ConfigScreen(
                         label = { Text("Nome") },
                         singleLine = true
                     )
+                    if (categoria.tipo == TipoTransacao.GASTO) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = orcamentoTexto,
+                            onValueChange = { orcamentoTexto = it },
+                            label = { Text("Orçamento mensal (R$)") },
+                            placeholder = { Text("Vazio = sem orçamento") },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Decimal
+                            ),
+                            singleLine = true
+                        )
+                    }
                     Spacer(modifier = Modifier.height(12.dp))
                     SeletorCores(corSelecionada = cor, onSelecionar = { cor = it })
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Renomear atualiza também o histórico de transações.",
+                        text = "Renomear atualiza também o histórico de transações. " +
+                            "Orçamentos aparecem na aba Análise.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -800,7 +1020,12 @@ fun ConfigScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.editarCategoria(categoria, nome, cor)
+                        viewModel.editarCategoria(
+                            categoria,
+                            nome,
+                            cor,
+                            novoOrcamentoCentavos = reaisParaCentavos(orcamentoTexto)
+                        )
                         categoriaEmEdicao = null
                     }
                 ) {
@@ -821,21 +1046,41 @@ fun ConfigScreen(
             onDismissRequest = { confirmarLimpezaAberto = false },
             title = { Text("Limpar todos os dados?") },
             text = {
-                Text(
-                    "Todas as transações do perfil atual serão apagadas. " +
-                        "Esta ação é irreversível."
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.limparTodosDados()
-                        confirmarLimpezaAberto = false
+                Column {
+                    Text(
+                        "Esta ação é irreversível. O que você quer apagar?\n\n" +
+                            "• Só o contexto atual: apaga as transações da aba " +
+                            "em que você está (se for a Casa, some para todos " +
+                            "os membros).\n" +
+                            "• Tudo deste aparelho: apaga Pessoal e Empresa " +
+                            "de uma vez — inclusive contextos de modos que " +
+                            "você usou antes. A carteira da Casa fica de fora."
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.limparTodosDados(todosContextos = false)
+                            confirmarLimpezaAberto = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = RedExpense)
+                    ) {
+                        Text("Apagar só o contexto atual")
                     }
-                ) {
-                    Text("Apagar tudo", color = RedExpense)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.limparTodosDados(todosContextos = true)
+                            confirmarLimpezaAberto = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = RedExpense)
+                    ) {
+                        Text("Apagar tudo deste aparelho")
+                    }
                 }
             },
+            confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { confirmarLimpezaAberto = false }) {
                     Text("Cancelar")
@@ -880,6 +1125,50 @@ fun ConfigScreen(
     }
 }
 
+/** Converte reais ("3.500,50" BR ou "3500.50") para centavos; vazio = 0, inválido = -1. */
+private fun reaisParaCentavos(texto: String): Long {
+    val limpo = texto.trim()
+    if (limpo.isEmpty()) return 0L
+    val normalizado =
+        if (limpo.contains(',')) limpo.replace(".", "").replace(',', '.') else limpo
+    val reais = normalizado.toDoubleOrNull() ?: return -1L
+    return (reais * 100).roundToLong()
+}
+
+/** Círculos de cor para os temas pessoal e empresa (Aparência). */
+@Composable
+private fun SeletorCorTema(
+    titulo: String,
+    corSelecionada: CorApp,
+    onSelecionar: (CorApp) -> Unit
+) {
+    Text(
+        text = titulo,
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurface
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        CorApp.entries.forEach { cor ->
+            val selecionada = corSelecionada == cor
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(cor.hex.toColorInt()))
+                    .let {
+                        if (selecionada) {
+                            it.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                        } else {
+                            it
+                        }
+                    }
+                    .clickable { onSelecionar(cor) }
+            )
+        }
+    }
+}
+
 /** Grade de círculos coloridos para escolher a cor de uma categoria. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -916,7 +1205,8 @@ private fun SeletorCores(
 private fun ItemDados(
     icone: ImageVector,
     titulo: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    subtitulo: String? = null
 ) {
     Card(
         onClick = onClick,
@@ -938,11 +1228,20 @@ private fun ItemDados(
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = titulo,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Column {
+                Text(
+                    text = titulo,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                if (subtitulo != null) {
+                    Text(
+                        text = subtitulo,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
     }
 }
