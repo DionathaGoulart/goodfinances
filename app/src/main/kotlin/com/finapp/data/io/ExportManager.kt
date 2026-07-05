@@ -15,15 +15,62 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Gera CSV, JSON e PDF dos dados e escreve em Uris do Storage Access Framework. */
+/** Gera CSV, JSON, PDF e ZIP de notas e escreve em Uris do Storage Access Framework. */
 @Singleton
 class ExportManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val notaFiscalManager: NotaFiscalManager
 ) {
+
+    // ---------- ZIP (notas fiscais + CSV, para o imposto / contador) ----------
+
+    /**
+     * Empacota o CSV das transações (um por ano) e os arquivos de nota
+     * fiscal organizados em pastas `notas/{ano}/{mês}` — pronto para
+     * baixar no fim do ano e declarar o imposto.
+     */
+    fun exportarZip(uri: Uri, transacoes: List<Transacao>) {
+        val saida = context.contentResolver.openOutputStream(uri)
+            ?: throw IllegalStateException("Não foi possível abrir o arquivo de destino")
+        ZipOutputStream(saida.buffered()).use { zip ->
+            transacoes
+                .groupBy { it.data.year }
+                .toSortedMap()
+                .forEach { (ano, doAno) ->
+                    zip.putNextEntry(ZipEntry("transacoes_$ano.csv"))
+                    zip.write(gerarCsvTexto(doAno.sortedBy { it.data }).toByteArray())
+                    zip.closeEntry()
+                }
+
+            transacoes.filter { it.notaFiscal.isNotBlank() }.forEach { transacao ->
+                val arquivo = notaFiscalManager.arquivo(transacao.notaFiscal)
+                if (arquivo.exists()) {
+                    // Pasta ano/mês + nome legível: data + categoria + nome original
+                    val categoria = transacao.categoria
+                        .replace(Regex("[^A-Za-z0-9À-ÿ _-]"), "")
+                    val mesNome = transacao.data.month
+                        .getDisplayName(TextStyle.FULL, Formatadores.LOCALE_BR)
+                        .replaceFirstChar { it.uppercase(Formatadores.LOCALE_BR) }
+                    val pastaMes = "%02d - %s".format(transacao.data.monthValue, mesNome)
+                    zip.putNextEntry(
+                        ZipEntry(
+                            "notas/${transacao.data.year}/$pastaMes/" +
+                                "${transacao.data}_${categoria}_${arquivo.name}"
+                        )
+                    )
+                    arquivo.inputStream().use { it.copyTo(zip) }
+                    zip.closeEntry()
+                }
+            }
+        }
+    }
 
     // ---------- CSV ----------
 
@@ -75,6 +122,13 @@ class ExportManager @Inject constructor(
                         put("valor", t.valor / 100.0)
                         put("tipo", t.tipo.name.lowercase())
                         put("categoria", t.categoria)
+                        // Campos de sync/vínculo — o restore precisa deles
+                        if (t.criadoPor.isNotBlank()) put("criadoPor", t.criadoPor)
+                        if (t.criadoPorUid.isNotBlank()) put("criadoPorUid", t.criadoPorUid)
+                        if (t.transferenciaId.isNotBlank()) {
+                            put("transferenciaId", t.transferenciaId)
+                        }
+                        if (t.notaFiscal.isNotBlank()) put("notaFiscal", t.notaFiscal)
                     })
                 }
             })

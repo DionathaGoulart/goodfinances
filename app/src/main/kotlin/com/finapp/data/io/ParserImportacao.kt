@@ -99,7 +99,12 @@ class ParserImportacao @Inject constructor() {
                 valor = centavos,
                 tipo = parseTipo(obj.getString("tipo")),
                 categoria = obj.optString("categoria", "Outros").ifBlank { "Outros" },
-                perfil = perfil
+                perfil = perfil,
+                // Campos de sync/vínculo (backups do próprio app)
+                criadoPor = obj.optString("criadoPor", ""),
+                criadoPorUid = obj.optString("criadoPorUid", ""),
+                transferenciaId = obj.optString("transferenciaId", ""),
+                notaFiscal = obj.optString("notaFiscal", "")
             )
         }
 
