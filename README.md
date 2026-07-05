@@ -2,30 +2,42 @@
 
 App Android de controle financeiro pessoal e familiar, com **carteira compartilhada sincronizada em tempo real** entre celulares. Feito em Kotlin + Jetpack Compose, dark mode nativo, 100% em português.
 
+## 📲 Instalação e atualizações
+
+Baixe o APK mais recente na página de [**Releases**](https://github.com/DionathaGoulart/goodfinances/releases/latest). O app **verifica sozinho** se saiu versão nova (uma vez por dia) e oferece o download com um toque — publicou release nova aqui, todo mundo recebe o aviso no celular.
+
 ## ✨ Funcionalidades
 
 **Controle financeiro**
-- Dashboard com saldo total/do mês, ganhos e gastos em tempo real
+- Dashboard com saldo total/do mês, ganhos e gastos em tempo real — e **resumo do fechamento** do mês anterior no começo de cada mês
 - Lançamentos com categoria, descrição e data — máscara de moeda brasileira (digite `1234` e vira `R$ 12,34`)
-- Histórico agrupado por data, com busca e filtros (semana/mês/ano/personalizado)
-- Swipe para deletar com **Desfazer**
-- Transações recorrentes (ex: assinatura mensal) e **salário fixo lançado automaticamente** no dia configurado
-- Gráficos desenhados em Canvas puro (pizza por categoria, linha e barras dos últimos 6 meses) + estatísticas rápidas
+- **Compras parceladas** (um lançamento por mês) e **transferências entre contextos** (Pessoal ↔ Empresa ↔ Casa) com as duas pernas vinculadas — deletou uma, some a outra
+- Histórico agrupado por data, com busca e filtros por período, **tipo (ganho/gasto), categoria e membro da casa**
+- Swipe para deletar com **Desfazer** · deslize para os lados na Home para trocar de contexto
+- Transações recorrentes e **salário fixo lançado automaticamente** no dia configurado
+- Gráficos em Canvas puro (categorias com alternância ganhos/gastos, linha e barras de 6 meses), **orçamentos por categoria** e estatísticas rápidas
+- **Widget** de lançamento rápido na home do Android e **bloqueio por biometria** opcional
 
-**Perfis** — dados totalmente isolados entre si:
-- 👤 **Pessoa Física** — controle pessoal
-- 💼 **MEI** — abas separadas Pessoal | Negócio
-- 🏢 **CNPJ** — Receita × Despesa + Lucro do mês
+**Notas fiscais e comprovantes**
+- Anexe foto, imagem ou PDF a qualquer lançamento — **imagens viram PDF automaticamente**
+- Backup dos arquivos no **Google Drive** da sua conta (grátis, pasta privada do app)
+- Export ZIP organizado por **ano/mês + CSV anual** — pronto para a declaração de imposto
+
+**Modos de uso** — dados totalmente isolados entre si:
+- 👤 **Só pessoal** — controle do dia a dia
+- 💼 **Pessoal + Empresa** — abas separadas, com pró-labore espelhado
+- 🏢 **Só empresa** — Receita × Despesa + Lucro, painel fiscal com limite do MEI e lembrete do DAS
 - 🏠 **Casa** — carteira **compartilhada e sincronizada** entre membros
 
 **Casa compartilhada (sync)**
 - Login com Google, criação de "Casa" com código de convite de 6 caracteres
-- Lançamentos aparecem nos outros celulares em segundos, com o nome de quem lançou
+- Lançamentos aparecem nos outros celulares em segundos, com o nome de quem lançou — e **só o autor pode editar/apagar** (garantido também no servidor)
+- Visão **Membros**: cada um escolhe compartilhar os próprios gastos pessoais com a casa
 - Funciona offline (sincroniza quando a conexão volta); conflitos resolvidos por "última edição vence"
 
 **Dados**
 - Export CSV, JSON e relatório em PDF · Import com prévia e deduplicação
-- Backup automático semanal — local **e na nuvem** (restaura tudo ao trocar de celular)
+- **Sincronização entre aparelhos** da mesma conta (opt-in) e backup automático semanal — local **e na nuvem**
 - Dinheiro armazenado em **centavos (`Long`)** — sem erro de ponto flutuante
 
 ## 🛠 Tecnologias
