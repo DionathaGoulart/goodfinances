@@ -6,9 +6,12 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import com.finapp.data.db.entities.Categoria
+import com.finapp.data.db.entities.ContaAgendada
+import com.finapp.data.db.entities.Meta
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
+import java.time.LocalDate
 import com.finapp.utils.Formatadores
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.json.JSONArray
@@ -102,10 +105,18 @@ class ExportManager @Inject constructor(
 
     // ---------- JSON ----------
 
+    /**
+     * [metas]/[contas] só são preenchidos no BACKUP (restauração completa) —
+     * o export interoperável (CSV/JSON para o contador) não os inclui. As
+     * chaves ficam ausentes quando as listas estão vazias, e os valores dessas
+     * seções ficam em CENTAVOS (uso interno do app), diferente das transações.
+     */
     fun gerarJsonTexto(
         perfil: Perfil,
         transacoes: List<Transacao>,
-        categorias: List<Categoria>
+        categorias: List<Categoria>,
+        metas: List<Meta> = emptyList(),
+        contas: List<ContaAgendada> = emptyList()
     ): String {
         val raiz = JSONObject().apply {
             put("versao", "1.0")
@@ -143,8 +154,78 @@ class ExportManager @Inject constructor(
                     })
                 }
             })
+            // Seções de backup (valores em CENTAVOS). Ausentes no export interop.
+            if (metas.isNotEmpty()) {
+                put("metas", JSONArray().also { arr ->
+                    metas.forEach { m ->
+                        arr.put(JSONObject().apply {
+                            put("uuid", m.uuid)
+                            put("nome", m.nome)
+                            put("valorAlvo", m.valorAlvo)
+                            put("valorGuardado", m.valorGuardado)
+                            m.prazo?.let { put("prazo", it.toEpochDay()) }
+                            put("cor", m.cor)
+                        })
+                    }
+                })
+            }
+            if (contas.isNotEmpty()) {
+                put("contas", JSONArray().also { arr ->
+                    contas.forEach { c ->
+                        arr.put(JSONObject().apply {
+                            put("uuid", c.uuid)
+                            put("descricao", c.descricao)
+                            put("valor", c.valor)
+                            put("tipo", c.tipo.name.lowercase())
+                            put("categoria", c.categoria)
+                            put("vencimento", c.vencimento.toEpochDay())
+                            put("pago", c.pago)
+                        })
+                    }
+                })
+            }
         }
         return raiz.toString(2)
+    }
+
+    /** Lê a seção "metas" de um JSON de backup (centavos). Vazio se ausente. */
+    fun lerMetasBackup(json: String, perfil: Perfil): List<Meta> {
+        val arr = runCatching { JSONObject(json).optJSONArray("metas") }.getOrNull()
+            ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            Meta(
+                uuid = o.optString("uuid").ifBlank { return@mapNotNull null },
+                nome = o.optString("nome"),
+                valorAlvo = o.optLong("valorAlvo"),
+                valorGuardado = o.optLong("valorGuardado"),
+                prazo = if (o.has("prazo")) LocalDate.ofEpochDay(o.getLong("prazo")) else null,
+                cor = o.optString("cor", "#10B981"),
+                perfil = perfil
+            )
+        }
+    }
+
+    /** Lê a seção "contas" de um JSON de backup (centavos). Vazio se ausente. */
+    fun lerContasBackup(json: String, perfil: Perfil): List<ContaAgendada> {
+        val arr = runCatching { JSONObject(json).optJSONArray("contas") }.getOrNull()
+            ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val tipo = runCatching {
+                TipoTransacao.valueOf(o.optString("tipo").uppercase())
+            }.getOrNull() ?: return@mapNotNull null
+            ContaAgendada(
+                uuid = o.optString("uuid").ifBlank { return@mapNotNull null },
+                descricao = o.optString("descricao"),
+                valor = o.optLong("valor"),
+                tipo = tipo,
+                categoria = o.optString("categoria", "Outros"),
+                vencimento = LocalDate.ofEpochDay(o.optLong("vencimento")),
+                pago = o.optBoolean("pago", false),
+                perfil = perfil
+            )
+        }
     }
 
     fun exportarJson(
