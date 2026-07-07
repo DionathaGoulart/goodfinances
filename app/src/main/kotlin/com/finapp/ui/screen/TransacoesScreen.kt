@@ -48,9 +48,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
-import com.finapp.ui.component.TransacaoItemDismissivel
+import com.finapp.ui.component.TransacaoLinha
 import com.finapp.ui.component.TransacaoModal
 import com.finapp.ui.theme.BluAccent
 import com.finapp.utils.Formatadores
@@ -73,6 +74,10 @@ fun TransacoesScreen(viewModel: TransacaoViewModel = hiltViewModel()) {
     val filtroMembro by viewModel.filtroMembro.collectAsStateWithLifecycle()
     val categoriasGanho by viewModel.categoriasGanho.collectAsStateWithLifecycle()
     val categoriasGasto by viewModel.categoriasGasto.collectAsStateWithLifecycle()
+    val perfilDados by viewModel.perfil.collectAsStateWithLifecycle()
+    val compartilhando by viewModel.compartilhandoComCasa.collectAsStateWithLifecycle()
+    // "Esconder" só aparece nos baldes pessoais e com compartilhamento ligado
+    val podeEsconder = compartilhando && perfilDados in Perfil.BALDES_PESSOAIS
 
     val snackbarHostState = remember { SnackbarHostState() }
     val escopo = rememberCoroutineScope()
@@ -272,11 +277,16 @@ fun TransacoesScreen(viewModel: TransacaoViewModel = hiltViewModel()) {
                         }
                         items(doDia, key = { it.id }) { transacao ->
                             val podeEditar = viewModel.podeEditar(transacao)
-                            TransacaoItemDismissivel(
+                            TransacaoLinha(
                                 transacao = transacao,
                                 mostrarData = false,
-                                permitirSwipe = podeEditar,
-                                onDeletar = { deletada ->
+                                podeEditar = podeEditar,
+                                podeEsconder = podeEsconder,
+                                onEditar = {
+                                    transacaoEmEdicao = it
+                                    modalAberto = true
+                                },
+                                onExcluir = { deletada ->
                                     viewModel.deletarTransacao(deletada)
                                     escopo.launch {
                                         val resultado = snackbarHostState.showSnackbar(
@@ -289,16 +299,12 @@ fun TransacoesScreen(viewModel: TransacaoViewModel = hiltViewModel()) {
                                         }
                                     }
                                 },
-                                onClick = {
-                                    if (podeEditar) {
-                                        transacaoEmEdicao = transacao
-                                        modalAberto = true
-                                    } else {
-                                        escopo.launch {
-                                            snackbarHostState.showSnackbar(
-                                                "Só quem lançou pode editar esta transação"
-                                            )
-                                        }
+                                onAlternarOculto = viewModel::alternarOculto,
+                                onBloqueado = {
+                                    escopo.launch {
+                                        snackbarHostState.showSnackbar(
+                                            "Só quem lançou pode editar esta transação"
+                                        )
                                     }
                                 }
                             )
