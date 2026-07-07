@@ -16,7 +16,15 @@ Baixe o APK mais recente na página de [**Releases**](https://github.com/Dionath
 - Swipe para deletar com **Desfazer** · deslize para os lados na Home para trocar de contexto
 - Transações recorrentes e **salário fixo lançado automaticamente** no dia configurado
 - Gráficos em Canvas puro (categorias com alternância ganhos/gastos, linha e barras de 6 meses), **orçamentos por categoria** e estatísticas rápidas
+- **Toque numa fatia da pizza** para ver os lançamentos daquela categoria
+- **Insights automáticos** do mês: variações relevantes vs o mês anterior ("gastou 32% a mais em Alimentação")
+- **Faturas do cartão** em aberto, agrupadas por vencimento
 - **Widget** de lançamento rápido na home do Android e **bloqueio por biometria** opcional
+
+**Planejamento**
+- **Metas de economia** — defina um objetivo (ex: viagem), guarde/retire e acompanhe o progresso
+- **Contas a pagar/receber** — agende boletos e valores a receber; marque como pago e vira lançamento
+- **Notificações** — avisos de orçamento estourando, DAS vencendo, limite do MEI, contas vencendo, recorrências do dia e lembrete quando você fica dias sem registrar
 
 **Notas fiscais e comprovantes**
 - Anexe foto, imagem ou PDF a qualquer lançamento — **imagens viram PDF automaticamente**
@@ -42,7 +50,7 @@ Baixe o APK mais recente na página de [**Releases**](https://github.com/Dionath
 
 ## 🛠 Tecnologias
 
-Kotlin 2.1 · Jetpack Compose (Material 3) · Room (SQLite) · Hilt + KSP · Coroutines/Flow · Firebase Auth + Firestore · Canvas API (gráficos) · JUnit
+Kotlin 2.1 · Jetpack Compose (Material 3) · Room (SQLite) · Hilt + KSP · Coroutines/Flow · WorkManager (notificações) · Firebase Auth + Firestore · Canvas API (gráficos) · JUnit
 
 ## 🚀 Como rodar
 

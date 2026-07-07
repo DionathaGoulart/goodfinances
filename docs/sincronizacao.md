@@ -14,12 +14,19 @@ casas/{casaId}
   ├── transacoes/{uuid}            (1 doc por transação)
   │     valor, tipo, categoria, descricao, data (epochDay),
   │     atualizadoEm, deletado, criadoPor
-  └── categorias/{uuid}
-        nome, tipo, cor, arquivada, atualizadoEm, deletado
+  ├── categorias/{uuid}
+  │     nome, tipo, cor, arquivada, atualizadoEm, deletado
+  ├── cartoes/{uuid}               (nome, diaFechamento, diaVencimento, cor, ...)
+  ├── metas/{uuid}                 (nome, valorAlvo, valorGuardado, prazo, cor, ...)
+  └── contas/{uuid}                (descricao, valor, tipo, categoria, vencimento, pago, ...)
 
 usuarios/{uid}/backups/{perfil}    (backup na nuvem, privado por usuário)
   └── json, criadoEm
+usuarios/{uid}/perfis/{perfil}/{transacoes|categorias|cartoes|metas|contas}
+                                   (sync pessoal entre aparelhos, opt-in)
 ```
+
+`cartoes`, `metas` e `contas` são coletivas na Casa (qualquer membro edita — sem guard de autor, diferente das transações). Regras em `firestore-rules.txt`. Metas/contas usam `atualizadoEm`/`deletado` (tombstone) como o resto.
 
 O id de cada documento é o **uuid** da linha local — a mesma transação tem a mesma identidade em todos os aparelhos.
 
