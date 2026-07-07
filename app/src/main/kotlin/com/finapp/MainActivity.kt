@@ -1,8 +1,12 @@
 package com.finapp
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -59,9 +63,14 @@ class MainActivity : FragmentActivity() {
     /** Sessão desbloqueada (reinicia a cada recriação da Activity). */
     private val desbloqueado = mutableStateOf(false)
 
+    /** Pedido de permissão de notificação (Android 13+). Resultado ignorado — fail-open. */
+    private val pedirNotificacao =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        solicitarPermissaoNotificacao()
         // Widget "Novo lançamento": abre direto no modal de nova transação.
         // Consome o extra para a recriação da Activity não reabrir o modal.
         val abrirLancamento =
@@ -96,6 +105,15 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    /** Pede a permissão de notificação uma vez, se ainda não concedida (API 33+). */
+    private fun solicitarPermissaoNotificacao() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val concedida = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!concedida) pedirNotificacao.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private fun podeAutenticar(): Boolean =

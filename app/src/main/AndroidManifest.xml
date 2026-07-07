@@ -4,6 +4,9 @@
     <!-- Login Google e sincronização da Casa (Firestore) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Notificações locais (orçamento, DAS, recorrências) — Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".FinanApplication"
         android:allowBackup="true"
