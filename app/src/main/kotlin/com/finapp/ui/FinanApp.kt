@@ -5,7 +5,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -20,6 +22,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -32,6 +35,7 @@ import com.finapp.ui.screen.AnaliseScreen
 import com.finapp.ui.screen.ConfigScreen
 import com.finapp.ui.screen.HomeScreen
 import com.finapp.ui.screen.PerfilSelecaoScreen
+import com.finapp.ui.screen.PlanejamentoScreen
 import com.finapp.ui.screen.TransacoesScreen
 import com.finapp.viewmodel.PerfilViewModel
 
@@ -43,8 +47,9 @@ enum class FinanDestination(
 ) {
     HOME("home", "Home", Icons.Filled.Home),
     ANALISE("analise", "Análise", Icons.Filled.PieChart),
+    METAS("metas", "Metas", Icons.Filled.Savings),
     TRANSACOES("transacoes", "Transações", Icons.AutoMirrored.Filled.ReceiptLong),
-    CONFIG("config", "Configurações", Icons.Filled.Settings)
+    CONFIG("config", "Config", Icons.Filled.Settings)
 }
 
 /** [abrirLancamento] = chegada pelo widget: abre direto o modal de nova transação. */
@@ -120,8 +125,65 @@ fun FinanApp(
                 )
             }
             composable(FinanDestination.ANALISE.route) { AnaliseScreen() }
+            composable(FinanDestination.METAS.route) { PlanejamentoScreen() }
             composable(FinanDestination.TRANSACOES.route) { TransacoesScreen() }
             composable(FinanDestination.CONFIG.route) { ConfigScreen() }
         }
     }
+
+    // Dicas iniciais: mostradas uma única vez, logo após escolher o modo
+    val dicasVistas by perfilViewModel.dicasVistas.collectAsStateWithLifecycle()
+    if (!dicasVistas) {
+        DicasIniciaisDialog(onFechar = perfilViewModel::dispensarDicas)
+    }
+}
+
+/** Dica exibida no onboarding: emoji + título + descrição. */
+private data class Dica(val emoji: String, val titulo: String, val descricao: String)
+
+/** Dialog de boas-vindas com as principais funcionalidades do app. */
+@Composable
+private fun DicasIniciaisDialog(onFechar: () -> Unit) {
+    val dicas = listOf(
+        Dica("👆", "Toque no +", "Registre um ganho ou gasto. Digite só os números — a vírgula entra sozinha (1234 vira R$ 12,34)."),
+        Dica("↔️", "Deslize na Home", "Arraste para os lados para trocar entre Pessoal, Empresa e Casa."),
+        Dica("💳", "Cartão e parcelas", "Cadastre cartões em Configurações e lance compras no crédito, à vista ou parceladas."),
+        Dica("🏠", "Casa compartilhada", "Divida uma carteira com quem mora com você — os lançamentos sincronizam em segundos."),
+        Dica("🔔", "Avisos", "O app avisa quando o orçamento estoura, o DAS vence ou uma conta recorrente entra.")
+    )
+    AlertDialog(
+        onDismissRequest = onFechar,
+        title = { Text("Bem-vindo ao GoodFinances") },
+        text = {
+            androidx.compose.foundation.layout.Column(
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)
+            ) {
+                dicas.forEach { dica ->
+                    androidx.compose.foundation.layout.Row(
+                        horizontalArrangement =
+                            androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(text = dica.emoji, style = MaterialTheme.typography.titleLarge)
+                        androidx.compose.foundation.layout.Column {
+                            Text(
+                                text = dica.titulo,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = dica.descricao,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onFechar) {
+                Text("Começar")
+            }
+        }
+    )
 }

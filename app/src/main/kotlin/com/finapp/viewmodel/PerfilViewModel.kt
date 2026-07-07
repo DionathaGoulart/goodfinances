@@ -16,6 +16,11 @@ class PerfilViewModel @Inject constructor(
 
     val perfilFoiEscolhido: StateFlow<Boolean> = perfilManager.perfilFoiEscolhido
 
+    /** False até o usuário fechar as dicas iniciais (mostradas uma vez). */
+    val dicasVistas: StateFlow<Boolean> = perfilManager.dicasVistas
+
+    fun dispensarDicas() = perfilManager.marcarDicasVistas()
+
     /** Conclui o onboarding: modo de uso + tipo da empresa (quando houver). */
     fun escolherModo(modo: ModoUso, tipoEmpresa: TipoEmpresa?) {
         tipoEmpresa?.let(perfilManager::definirTipoEmpresa)
