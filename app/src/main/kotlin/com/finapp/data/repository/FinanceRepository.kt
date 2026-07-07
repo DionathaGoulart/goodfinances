@@ -6,13 +6,17 @@ import com.finapp.data.db.AppDatabase
 import com.finapp.data.db.CartaoDao
 import com.finapp.data.db.CategoriaDao
 import com.finapp.data.db.ConfiguracaoPerfilDao
+import com.finapp.data.db.ContaAgendadaDao
+import com.finapp.data.db.MetaDao
 import com.finapp.data.db.SomaPorCategoria
 import com.finapp.data.db.TransacaoDao
 import com.finapp.data.db.TransacaoRecorrenteDao
 import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.ConfiguracaoPerfil
+import com.finapp.data.db.entities.ContaAgendada
 import com.finapp.data.db.entities.Frequencia
+import com.finapp.data.db.entities.Meta
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
@@ -34,7 +38,9 @@ class FinanceRepository @Inject constructor(
     private val categoriaDao: CategoriaDao,
     private val configuracaoPerfilDao: ConfiguracaoPerfilDao,
     private val transacaoRecorrenteDao: TransacaoRecorrenteDao,
-    private val cartaoDao: CartaoDao
+    private val cartaoDao: CartaoDao,
+    private val metaDao: MetaDao,
+    private val contaAgendadaDao: ContaAgendadaDao
 ) {
 
     private fun agora() = System.currentTimeMillis()
@@ -107,6 +113,8 @@ class FinanceRepository @Inject constructor(
         categoriaDao.deletarTodas(Perfil.CASA)
         transacaoRecorrenteDao.deletarTodas(Perfil.CASA)
         cartaoDao.deletarTodos(Perfil.CASA)
+        metaDao.deletarTodas(Perfil.CASA)
+        contaAgendadaDao.deletarTodas(Perfil.CASA)
     }
 
     /** Arquivos de nota fiscal ainda referenciados — limpeza de órfãos. */
@@ -457,6 +465,105 @@ class FinanceRepository @Inject constructor(
                     recorrente.copy(proximoLancamento = proxima, atualizadoEm = agora())
                 )
             }
+        }
+    }
+
+    // ---------- Metas de economia ----------
+
+    fun observarMetas(perfil: Perfil): Flow<List<Meta>> = metaDao.observarTodas(perfil)
+
+    suspend fun inserirMeta(meta: Meta): Long = metaDao.inserir(meta)
+
+    suspend fun atualizarMeta(meta: Meta) =
+        metaDao.atualizar(meta.copy(atualizadoEm = agora()))
+
+    /** Deleção lógica (tombstone). */
+    suspend fun deletarMeta(meta: Meta) =
+        metaDao.atualizar(meta.copy(deletado = true, atualizadoEm = agora()))
+
+    /** Limpeza: tombstona todas as metas do balde (propaga no sync). */
+    suspend fun deletarTodasMetas(perfil: Perfil) =
+        metaDao.marcarTodasDeletadas(perfil, agora())
+
+    /** Metas vivas do perfil — backup. */
+    suspend fun listarMetas(perfil: Perfil): List<Meta> = metaDao.listarTodas(perfil)
+
+    /** Restaura metas de um backup (mescla por uuid: só insere as que faltam). */
+    suspend fun importarMetas(perfil: Perfil, metas: List<Meta>): Int {
+        var inseridas = 0
+        metas.forEach { meta ->
+            if (metaDao.obterPorUuid(meta.uuid) == null) {
+                metaDao.inserir(meta.copy(id = 0, perfil = perfil))
+                inseridas++
+            }
+        }
+        return inseridas
+    }
+
+    /**
+     * Aporta (ou retira, com [delta] negativo) na meta. O guardado nunca fica
+     * negativo. Não mexe no saldo das transações — é um acompanhamento à parte.
+     */
+    suspend fun aportarMeta(meta: Meta, delta: Long) {
+        val novo = (meta.valorGuardado + delta).coerceAtLeast(0L)
+        metaDao.atualizar(meta.copy(valorGuardado = novo, atualizadoEm = agora()))
+    }
+
+    // ---------- Contas a pagar/receber agendadas ----------
+
+    fun observarContasPendentes(perfil: Perfil): Flow<List<ContaAgendada>> =
+        contaAgendadaDao.observarPendentes(perfil)
+
+    suspend fun listarContasPendentesAte(perfil: Perfil, ate: LocalDate): List<ContaAgendada> =
+        contaAgendadaDao.listarPendentesAte(perfil, ate)
+
+    suspend fun inserirConta(conta: ContaAgendada): Long = contaAgendadaDao.inserir(conta)
+
+    suspend fun atualizarConta(conta: ContaAgendada) =
+        contaAgendadaDao.atualizar(conta.copy(atualizadoEm = agora()))
+
+    /** Deleção lógica (tombstone). */
+    suspend fun deletarConta(conta: ContaAgendada) =
+        contaAgendadaDao.atualizar(conta.copy(deletado = true, atualizadoEm = agora()))
+
+    /** Limpeza: tombstona todas as contas do balde (propaga no sync). */
+    suspend fun deletarTodasContas(perfil: Perfil) =
+        contaAgendadaDao.marcarTodasDeletadas(perfil, agora())
+
+    /** Contas vivas do perfil (pendentes e pagas) — backup. */
+    suspend fun listarContas(perfil: Perfil): List<ContaAgendada> =
+        contaAgendadaDao.listarTodas(perfil)
+
+    /** Restaura contas de um backup (mescla por uuid: só insere as que faltam). */
+    suspend fun importarContas(perfil: Perfil, contas: List<ContaAgendada>): Int {
+        var inseridas = 0
+        contas.forEach { conta ->
+            if (contaAgendadaDao.obterPorUuid(conta.uuid) == null) {
+                contaAgendadaDao.inserir(conta.copy(id = 0, perfil = perfil))
+                inseridas++
+            }
+        }
+        return inseridas
+    }
+
+    /**
+     * Marca a conta como paga: cria a [Transacao] correspondente na data de
+     * pagamento ([dataPagamento], padrão hoje) e marca a conta como paga.
+     * Atômico — cancelar no meio não deixa transação sem baixa.
+     */
+    suspend fun pagarConta(conta: ContaAgendada, dataPagamento: LocalDate = LocalDate.now()) {
+        db.withTransaction {
+            transacaoDao.inserir(
+                Transacao(
+                    valor = conta.valor,
+                    tipo = conta.tipo,
+                    categoria = conta.categoria,
+                    descricao = conta.descricao,
+                    data = dataPagamento,
+                    perfil = conta.perfil
+                )
+            )
+            contaAgendadaDao.atualizar(conta.copy(pago = true, atualizadoEm = agora()))
         }
     }
 }
