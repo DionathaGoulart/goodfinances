@@ -1,7 +1,9 @@
 package com.finapp.ui.screen
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,10 +13,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePickerDialog
@@ -36,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.toColorInt
@@ -54,8 +61,11 @@ import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
 import com.finapp.utils.PeriodoFiltro
 import com.finapp.viewmodel.AnaliseViewModel
+import com.finapp.viewmodel.Fatura
+import com.finapp.viewmodel.Insight
 import com.finapp.viewmodel.OrcamentoCategoria
 import com.finapp.viewmodel.PainelFiscal
+import com.finapp.viewmodel.TipoInsight
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.TextStyle
@@ -77,9 +87,13 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
     val tipoEmpresa by viewModel.tipoEmpresa.collectAsStateWithLifecycle()
     val orcamentos by viewModel.orcamentos.collectAsStateWithLifecycle()
     val transacoesPeriodo by viewModel.transacoesDoPeriodo.collectAsStateWithLifecycle()
+    val insights by viewModel.insights.collectAsStateWithLifecycle()
+    val faturas by viewModel.faturas.collectAsStateWithLifecycle()
 
     var rangePickerAberto by remember { mutableStateOf(false) }
     var detalheAberto by remember { mutableStateOf<DetalheEstatistica?>(null) }
+    var categoriaDetalhe by remember { mutableStateOf<String?>(null) }
+    var faturaDetalhe by remember { mutableStateOf<Fatura?>(null) }
 
     Column(
         modifier = Modifier
@@ -120,6 +134,12 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
 
         Spacer(modifier = Modifier.height(20.dp))
 
+        // ---------- Insights do mês (variação vs mês anterior) ----------
+        if (insights.isNotEmpty()) {
+            SecaoInsights(insights = insights)
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
         // ---------- Painel fiscal (só nos contextos de empresa) ----------
         painelFiscal?.let { painel ->
             PainelFiscalCard(painel = painel, tipoEmpresa = tipoEmpresa)
@@ -129,6 +149,12 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
         // ---------- Orçamentos do mês (categorias com teto definido) ----------
         if (orcamentos.isNotEmpty()) {
             SecaoOrcamentos(orcamentos = orcamentos)
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
+        // ---------- Faturas em aberto dos cartões ----------
+        if (faturas.isNotEmpty()) {
+            SecaoFaturas(faturas = faturas, onVerFatura = { faturaDetalhe = it })
             Spacer(modifier = Modifier.height(20.dp))
         }
 
@@ -152,7 +178,10 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
-            GraficoPizza(fatias = fatias)
+            GraficoPizza(
+                fatias = fatias,
+                onVerCategoria = { categoriaDetalhe = it }
+            )
         }
 
         // ---------- Linha: ganhos vs gastos (6 meses) ----------
@@ -222,6 +251,21 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
             gastoMedioDiario = estatisticas.gastoMedioDiario,
             onFechar = { detalheAberto = null }
         )
+    }
+
+    // ---------- Lançamentos de uma categoria (toque na fatia da pizza) ----------
+    categoriaDetalhe?.let { categoria ->
+        CategoriaDetalheSheet(
+            categoria = categoria,
+            transacoes = transacoesPeriodo,
+            tipo = tipoCategoria,
+            onFechar = { categoriaDetalhe = null }
+        )
+    }
+
+    // ---------- Itens de uma fatura (toque no cartão) ----------
+    faturaDetalhe?.let { fatura ->
+        FaturaDetalheSheet(fatura = fatura, onFechar = { faturaDetalhe = null })
     }
 
     // ---------- Período customizado ----------
@@ -517,8 +561,12 @@ private fun DetalheEstatisticaSheet(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp)
         ) {
-            val gastos = transacoes.filter { it.tipo == TipoTransacao.GASTO }
-            val ganhos = transacoes.filter { it.tipo == TipoTransacao.GANHO }
+            val gastos = remember(transacoes) {
+                transacoes.filter { it.tipo == TipoTransacao.GASTO }
+            }
+            val ganhos = remember(transacoes) {
+                transacoes.filter { it.tipo == TipoTransacao.GANHO }
+            }
 
             when (qual) {
                 DetalheEstatistica.GASTO_MEDIO -> {
@@ -622,6 +670,176 @@ private fun ListaTransacoes(transacoes: List<Transacao>) {
         return
     }
     transacoes.forEach { TransacaoItem(transacao = it) }
+}
+
+/** Card de insights do mês: variações relevantes vs o mês anterior. */
+@Composable
+private fun SecaoInsights(insights: List<Insight>) {
+    Text(
+        text = "DO SEU MÊS",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            insights.forEachIndexed { indice, insight ->
+                if (indice > 0) Spacer(modifier = Modifier.height(12.dp))
+                val cor = when (insight.tipo) {
+                    TipoInsight.ALTA -> RedExpense
+                    TipoInsight.BAIXA -> com.finapp.ui.theme.GreenPrimary
+                    TipoInsight.INFO -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+                val icone = when (insight.tipo) {
+                    TipoInsight.ALTA -> Icons.Filled.TrendingUp
+                    TipoInsight.BAIXA -> Icons.Filled.TrendingDown
+                    TipoInsight.INFO -> Icons.Filled.Info
+                }
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = icone,
+                        contentDescription = null,
+                        tint = cor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = insight.texto,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Faturas em aberto: um card por fatura (cartão + vencimento + total). */
+@Composable
+private fun SecaoFaturas(faturas: List<Fatura>, onVerFatura: (Fatura) -> Unit) {
+    Text(
+        text = "FATURAS DO CARTÃO",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    faturas.forEachIndexed { indice, fatura ->
+        if (indice > 0) Spacer(modifier = Modifier.height(8.dp))
+        val cor = runCatching { Color(fatura.cartaoCor.toColorInt()) }
+            .getOrDefault(MaterialTheme.colorScheme.primary)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onVerFatura(fatura) },
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(cor)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = fatura.cartaoNome,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Vence ${Formatadores.dataCurta(fatura.vencimento)} · " +
+                            "${fatura.itens.size} ${if (fatura.itens.size == 1) "compra" else "compras"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    text = Formatadores.moeda(fatura.total),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Icon(
+                    imageVector = Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+/** Itens de uma fatura (aberto ao tocar no card do cartão). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FaturaDetalheSheet(fatura: Fatura, onFechar: () -> Unit) {
+    val estado = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onFechar, sheetState = estado) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 560.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            TituloDetalhe(fatura.cartaoNome)
+            LinhaValor(
+                nome = "Vence ${Formatadores.dataCurta(fatura.vencimento)}",
+                valor = Formatadores.moeda(fatura.total),
+                corValor = RedExpense
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            ListaTransacoes(fatura.itens)
+        }
+    }
+}
+
+/** Lançamentos de uma categoria no período (aberto ao tocar na fatia). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CategoriaDetalheSheet(
+    categoria: String,
+    transacoes: List<Transacao>,
+    tipo: TipoTransacao,
+    onFechar: () -> Unit
+) {
+    val estado = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val doTipo = remember(transacoes, categoria, tipo) {
+        transacoes
+            .filter { it.categoria == categoria && it.tipo == tipo }
+            .sortedByDescending { it.valor }
+    }
+    val total = remember(doTipo) { doTipo.sumOf { it.valor } }
+    ModalBottomSheet(onDismissRequest = onFechar, sheetState = estado) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 560.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            TituloDetalhe(categoria)
+            LinhaValor(
+                nome = "Total no período",
+                valor = Formatadores.moeda(total),
+                corValor = if (tipo == TipoTransacao.GASTO) RedExpense
+                else com.finapp.ui.theme.GreenPrimary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            ListaTransacoes(doTipo)
+        }
+    }
 }
 
 @Composable

@@ -66,6 +66,24 @@ data class OrcamentoCategoria(
     val orcamento: Long
 )
 
+/** Fatura de um cartão: total e itens que vencem numa mesma data. Centavos. */
+data class Fatura(
+    val cartaoNome: String,
+    val cartaoCor: String,
+    val vencimento: LocalDate,
+    val total: Long,
+    val itens: List<Transacao>
+)
+
+/** Direção de um insight — muda a cor/ícone na UI. */
+enum class TipoInsight { ALTA, BAIXA, INFO }
+
+/** Observação proativa derivada da comparação entre o mês atual e o anterior. */
+data class Insight(
+    val texto: String,
+    val tipo: TipoInsight
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AnaliseViewModel @Inject constructor(
@@ -210,6 +228,55 @@ class AnaliseViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * Insights proativos: compara os gastos por categoria do mês atual com o
+     * mês anterior e destaca as maiores variações. Independe do filtro de
+     * período (sempre mês vs mês anterior).
+     */
+    val insights: StateFlow<List<Insight>> =
+        combine(perfil, dataAtual) { p, hoje -> p to hoje }
+            .flatMapLatest { (p, hoje) ->
+                val mesAtual = YearMonth.from(hoje)
+                val inicio = mesAtual.minusMonths(1).atDay(1)
+                val fim = mesAtual.atEndOfMonth()
+                repository.observarTransacoesPeriodo(p, inicio, fim)
+                    .map { transacoes -> calcularInsights(transacoes, mesAtual) }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Faturas em aberto dos cartões do contexto: agrupa as compras no crédito
+     * pela data de vencimento (a `data` da transação de crédito). Mostra da
+     * fatura do mês corrente em diante (as anteriores já fecharam).
+     */
+    val faturas: StateFlow<List<Fatura>> =
+        combine(perfil, dataAtual) { p, hoje -> p to hoje }
+            .flatMapLatest { (p, hoje) ->
+                combine(
+                    repository.observarTransacoes(p),
+                    repository.observarCartoes(p)
+                ) { transacoes, cartoes ->
+                    val corPorUuid = cartoes.associate { it.uuid to (it.nome to it.cor) }
+                    val inicioMesAtual = YearMonth.from(hoje).atDay(1)
+                    transacoes
+                        .filter { it.cartaoUuid.isNotBlank() && !it.data.isBefore(inicioMesAtual) }
+                        .groupBy { it.cartaoUuid to it.data }
+                        .map { (chave, itens) ->
+                            val (uuid, vencimento) = chave
+                            val info = corPorUuid[uuid]
+                            Fatura(
+                                cartaoNome = info?.first ?: "Cartão",
+                                cartaoCor = info?.second ?: "#8B5CF6",
+                                vencimento = vencimento,
+                                total = itens.sumOf { it.valor },
+                                itens = itens.sortedByDescending { it.dataCompra ?: it.data }
+                            )
+                        }
+                        .sortedBy { it.vencimento }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     fun alterarPeriodo(filtro: PeriodoFiltro) {
         _filtro.value = filtro
     }
@@ -236,6 +303,84 @@ class AnaliseViewModel @Inject constructor(
                 gastos = doMes.filter { it.tipo == TipoTransacao.GASTO }.sumOf { it.valor }
             )
         }
+    }
+
+    /**
+     * Compara gastos por categoria entre [mesAtual] e o mês anterior e monta
+     * até 3 observações relevantes (variação >= 15% e >= R$ 20). Fecha com o
+     * total do mês vs o anterior.
+     */
+    private fun calcularInsights(
+        transacoes: List<Transacao>,
+        mesAtual: YearMonth
+    ): List<Insight> {
+        val gastos = transacoes.filter {
+            it.tipo == TipoTransacao.GASTO &&
+                it.categoria != FinanceRepository.NOME_TRANSFERENCIA
+        }
+        val mesAnterior = mesAtual.minusMonths(1)
+        fun somasDoMes(mes: YearMonth): Map<String, Long> = gastos
+            .filter { YearMonth.from(it.data) == mes }
+            .groupBy { it.categoria }
+            .mapValues { (_, lista) -> lista.sumOf { it.valor } }
+
+        val atual = somasDoMes(mesAtual)
+        val anterior = somasDoMes(mesAnterior)
+        if (atual.isEmpty() && anterior.isEmpty()) return emptyList()
+
+        data class Variacao(val categoria: String, val de: Long, val para: Long) {
+            val delta = para - de
+            val pct = if (de == 0L) 1.0 else delta.toDouble() / de
+        }
+
+        val variacoes = (atual.keys + anterior.keys).map { cat ->
+            Variacao(cat, anterior[cat] ?: 0L, atual[cat] ?: 0L)
+        }.filter {
+            kotlin.math.abs(it.delta) >= LIMIAR_INSIGHT_CENTAVOS &&
+                (it.de == 0L || kotlin.math.abs(it.pct) >= 0.15)
+        }
+
+        val insights = mutableListOf<Insight>()
+
+        variacoes.filter { it.delta > 0 }.maxByOrNull { it.delta }?.let { v ->
+            val pct = if (v.de == 0L) null else "${(v.pct * 100).toInt()}% a mais"
+            insights += Insight(
+                texto = "Gastou ${pct ?: "mais"} em ${v.categoria} que no mês passado " +
+                    "(${moedaBr(v.de)} → ${moedaBr(v.para)})",
+                tipo = TipoInsight.ALTA
+            )
+        }
+        variacoes.filter { it.delta < 0 }.minByOrNull { it.delta }?.let { v ->
+            insights += Insight(
+                texto = "Economizou em ${v.categoria}: ${moedaBr(v.de)} → ${moedaBr(v.para)}",
+                tipo = TipoInsight.BAIXA
+            )
+        }
+
+        val totalAtual = atual.values.sum()
+        val totalAnterior = anterior.values.sum()
+        if (totalAnterior > 0 && totalAtual > 0) {
+            val diff = totalAtual - totalAnterior
+            val pct = (diff.toDouble() / totalAnterior * 100).toInt()
+            if (kotlin.math.abs(pct) >= 10) {
+                insights += Insight(
+                    texto = if (diff > 0) {
+                        "No total, seus gastos subiram $pct% neste mês"
+                    } else {
+                        "No total, seus gastos caíram ${-pct}% neste mês"
+                    },
+                    tipo = if (diff > 0) TipoInsight.ALTA else TipoInsight.BAIXA
+                )
+            }
+        }
+        return insights.take(3)
+    }
+
+    private fun moedaBr(centavos: Long) = com.finapp.utils.Formatadores.moeda(centavos)
+
+    private companion object {
+        /** Variação mínima (R$ 20) para uma categoria virar insight. */
+        const val LIMIAR_INSIGHT_CENTAVOS = 2_000L
     }
 
     private fun calcularEstatisticas(
