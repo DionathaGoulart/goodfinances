@@ -132,10 +132,12 @@ interface TransacaoDao {
     )
     fun observarSaldoTotal(perfil: Perfil): Flow<Long>
 
+    // Transferências entre baldes (categoria 'Transferência') movem só o
+    // SALDO — ficam FORA de receita/despesa/faturamento/estatísticas.
     @Query(
         """
         SELECT COALESCE(SUM(valor), 0) FROM Transacao
-        WHERE perfil = :perfil AND deletado = 0
+        WHERE perfil = :perfil AND deletado = 0 AND categoria <> 'Transferência'
             AND tipo = :tipo AND data BETWEEN :inicio AND :fim
         """
     )
@@ -149,7 +151,7 @@ interface TransacaoDao {
     @Query(
         """
         SELECT categoria, COALESCE(SUM(valor), 0) AS total FROM Transacao
-        WHERE perfil = :perfil AND deletado = 0
+        WHERE perfil = :perfil AND deletado = 0 AND categoria <> 'Transferência'
             AND tipo = :tipo AND data BETWEEN :inicio AND :fim
         GROUP BY categoria ORDER BY total DESC
         """
@@ -164,7 +166,7 @@ interface TransacaoDao {
     @Query(
         """
         SELECT COALESCE(SUM(valor), 0) FROM Transacao
-        WHERE perfil = :perfil AND deletado = 0
+        WHERE perfil = :perfil AND deletado = 0 AND categoria <> 'Transferência'
             AND tipo = :tipo AND data BETWEEN :inicio AND :fim
         """
     )
