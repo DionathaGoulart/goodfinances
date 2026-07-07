@@ -6,6 +6,8 @@ import com.finapp.data.db.AppDatabase
 import com.finapp.data.db.CartaoDao
 import com.finapp.data.db.CategoriaDao
 import com.finapp.data.db.ConfiguracaoPerfilDao
+import com.finapp.data.db.ContaAgendadaDao
+import com.finapp.data.db.MetaDao
 import com.finapp.data.db.TransacaoDao
 import com.finapp.data.db.TransacaoRecorrenteDao
 import dagger.Module
@@ -32,7 +34,8 @@ object DatabaseModule {
                 AppDatabase.MIGRACAO_6_7,
                 AppDatabase.MIGRACAO_7_8,
                 AppDatabase.MIGRACAO_8_9,
-                AppDatabase.MIGRACAO_9_10
+                AppDatabase.MIGRACAO_9_10,
+                AppDatabase.MIGRACAO_10_11
             )
             .build()
 
@@ -52,4 +55,10 @@ object DatabaseModule {
 
     @Provides
     fun provideCartaoDao(db: AppDatabase): CartaoDao = db.cartaoDao()
+
+    @Provides
+    fun provideMetaDao(db: AppDatabase): MetaDao = db.metaDao()
+
+    @Provides
+    fun provideContaAgendadaDao(db: AppDatabase): ContaAgendadaDao = db.contaAgendadaDao()
 }

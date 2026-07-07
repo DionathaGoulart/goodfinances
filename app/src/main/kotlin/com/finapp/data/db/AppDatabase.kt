@@ -8,6 +8,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.ConfiguracaoPerfil
+import com.finapp.data.db.entities.ContaAgendada
+import com.finapp.data.db.entities.Meta
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.db.entities.TransacaoRecorrente
 
@@ -17,9 +19,11 @@ import com.finapp.data.db.entities.TransacaoRecorrente
         Categoria::class,
         ConfiguracaoPerfil::class,
         TransacaoRecorrente::class,
-        Cartao::class
+        Cartao::class,
+        Meta::class,
+        ContaAgendada::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -29,6 +33,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun configuracaoPerfilDao(): ConfiguracaoPerfilDao
     abstract fun transacaoRecorrenteDao(): TransacaoRecorrenteDao
     abstract fun cartaoDao(): CartaoDao
+    abstract fun metaDao(): MetaDao
+    abstract fun contaAgendadaDao(): ContaAgendadaDao
 
     companion object {
         const val NOME = "finapp.db"
@@ -303,6 +309,44 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 // dataCompra é nullable (epoch day) — sem DEFAULT: fica NULL nas antigas
                 db.execSQL("ALTER TABLE Transacao ADD COLUMN dataCompra INTEGER")
+            }
+        }
+
+        /**
+         * v10 -> v11: metas de economia (tabela Meta) e contas a pagar/receber
+         * agendadas (tabela ContaAgendada). Ambas isoladas por perfil, com
+         * uuid/atualizadoEm/deletado no mesmo padrão das demais entidades.
+         */
+        val MIGRACAO_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS Meta (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "uuid TEXT NOT NULL, nome TEXT NOT NULL, " +
+                        "valorAlvo INTEGER NOT NULL, valorGuardado INTEGER NOT NULL, " +
+                        "prazo INTEGER, cor TEXT NOT NULL, perfil TEXT NOT NULL, " +
+                        "atualizadoEm INTEGER NOT NULL, deletado INTEGER NOT NULL)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_Meta_perfil ON Meta (perfil)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_Meta_uuid ON Meta (uuid)")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS ContaAgendada (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "uuid TEXT NOT NULL, descricao TEXT NOT NULL, " +
+                        "valor INTEGER NOT NULL, tipo TEXT NOT NULL, " +
+                        "categoria TEXT NOT NULL, vencimento INTEGER NOT NULL, " +
+                        "pago INTEGER NOT NULL, perfil TEXT NOT NULL, " +
+                        "atualizadoEm INTEGER NOT NULL, deletado INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_ContaAgendada_perfil_pago " +
+                        "ON ContaAgendada (perfil, pago)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_ContaAgendada_uuid " +
+                        "ON ContaAgendada (uuid)"
+                )
             }
         }
     }
