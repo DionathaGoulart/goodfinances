@@ -44,6 +44,17 @@ service cloud.firestore {
         allow read, write: if ehMembro();
       }
 
+      // Cartões, metas e contas da Casa: coletivos (qualquer membro gerencia).
+      match /cartoes/{cartaoId} {
+        allow read, write: if ehMembro();
+      }
+      match /metas/{metaId} {
+        allow read, write: if ehMembro();
+      }
+      match /contas/{contaId} {
+        allow read, write: if ehMembro();
+      }
+
       // Espelho da visão Membros: cada membro só escreve no próprio feed.
       match /membros/{membroUid}/{documento=**} {
         allow read: if ehMembro();

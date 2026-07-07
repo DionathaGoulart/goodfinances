@@ -4,9 +4,13 @@ import android.content.Context
 import androidx.core.content.edit
 import com.finapp.data.db.CartaoDao
 import com.finapp.data.db.CategoriaDao
+import com.finapp.data.db.ContaAgendadaDao
+import com.finapp.data.db.MetaDao
 import com.finapp.data.db.TransacaoDao
 import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
+import com.finapp.data.db.entities.ContaAgendada
+import com.finapp.data.db.entities.Meta
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
@@ -60,7 +64,9 @@ class SyncManager @Inject constructor(
     private val casaManager: CasaManager,
     private val transacaoDao: TransacaoDao,
     private val categoriaDao: CategoriaDao,
-    private val cartaoDao: CartaoDao
+    private val cartaoDao: CartaoDao,
+    private val metaDao: MetaDao,
+    private val contaAgendadaDao: ContaAgendadaDao
 ) {
     private val db = FirebaseFirestore.getInstance()
     private val prefs = context.getSharedPreferences("finapp_prefs", Context.MODE_PRIVATE)
@@ -255,6 +261,20 @@ class SyncManager @Inject constructor(
             listeners = listenersCasa,
             trabalhos = trabalhosCasa
         )
+        ligarSyncMetas(
+            metas = metasCasaRef(casaId),
+            perfil = Perfil.CASA,
+            chaveMarca = "sync_marca_metas_$casaId",
+            listeners = listenersCasa,
+            trabalhos = trabalhosCasa
+        )
+        ligarSyncContas(
+            contas = contasCasaRef(casaId),
+            perfil = Perfil.CASA,
+            chaveMarca = "sync_marca_contas_$casaId",
+            listeners = listenersCasa,
+            trabalhos = trabalhosCasa
+        )
     }
 
     private fun iniciarSyncPessoal(uid: String) {
@@ -272,6 +292,20 @@ class SyncManager @Inject constructor(
                 cartoes = cartoesPessoalRef(uid, perfil),
                 perfil = perfil,
                 chaveMarca = "sync_marca_cart_${uid}_${perfil.name}",
+                listeners = listenersPessoal,
+                trabalhos = trabalhosPessoal
+            )
+            ligarSyncMetas(
+                metas = metasPessoalRef(uid, perfil),
+                perfil = perfil,
+                chaveMarca = "sync_marca_meta_${uid}_${perfil.name}",
+                listeners = listenersPessoal,
+                trabalhos = trabalhosPessoal
+            )
+            ligarSyncContas(
+                contas = contasPessoalRef(uid, perfil),
+                perfil = perfil,
+                chaveMarca = "sync_marca_conta_${uid}_${perfil.name}",
                 listeners = listenersPessoal,
                 trabalhos = trabalhosPessoal
             )
@@ -301,6 +335,54 @@ class SyncManager @Inject constructor(
                 .collect {
                     runCatching { empurrarCartoes(cartoes, perfil, chaveMarca) }
                 }
+        }
+    }
+
+    /** PULL em tempo real + PUSH reativo das metas de um balde. */
+    private fun ligarSyncMetas(
+        metas: CollectionReference,
+        perfil: Perfil,
+        chaveMarca: String,
+        listeners: MutableList<ListenerRegistration>,
+        trabalhos: MutableList<Job>
+    ) {
+        listeners += metas.addSnapshotListener { snapshot, erro ->
+            if (erro != null || snapshot == null) return@addSnapshotListener
+            val docs = snapshot.documentChanges
+                .filter { it.type != DocumentChange.Type.REMOVED }
+                .map { it.document }
+            if (docs.isNotEmpty()) {
+                escopo.launch { docs.forEach { aplicarMetaRemota(it, perfil) } }
+            }
+        }
+        trabalhos += escopo.launch {
+            metaDao.observarUltimaModificacao(perfil)
+                .debounce(1_500)
+                .collect { runCatching { empurrarMetas(metas, perfil, chaveMarca) } }
+        }
+    }
+
+    /** PULL em tempo real + PUSH reativo das contas agendadas de um balde. */
+    private fun ligarSyncContas(
+        contas: CollectionReference,
+        perfil: Perfil,
+        chaveMarca: String,
+        listeners: MutableList<ListenerRegistration>,
+        trabalhos: MutableList<Job>
+    ) {
+        listeners += contas.addSnapshotListener { snapshot, erro ->
+            if (erro != null || snapshot == null) return@addSnapshotListener
+            val docs = snapshot.documentChanges
+                .filter { it.type != DocumentChange.Type.REMOVED }
+                .map { it.document }
+            if (docs.isNotEmpty()) {
+                escopo.launch { docs.forEach { aplicarContaRemota(it, perfil) } }
+            }
+        }
+        trabalhos += escopo.launch {
+            contaAgendadaDao.observarUltimaModificacao(perfil)
+                .debounce(1_500)
+                .collect { runCatching { empurrarContas(contas, perfil, chaveMarca) } }
         }
     }
 
@@ -480,7 +562,109 @@ class SyncManager @Inject constructor(
         prefs.edit { putLong(chaveMarca, modificadas.maxOf { it.atualizadoEm }) }
     }
 
+    private suspend fun empurrarMetas(
+        ref: CollectionReference,
+        perfil: Perfil,
+        chaveMarca: String
+    ) {
+        val marca = prefs.getLong(chaveMarca, 0L)
+        val modificadas = metaDao.listarModificadas(perfil, marca)
+        if (modificadas.isEmpty()) return
+
+        modificadas.chunked(400).forEach { lote ->
+            val batch = db.batch()
+            lote.forEach { m ->
+                batch.set(
+                    ref.document(m.uuid),
+                    mapOf(
+                        "nome" to m.nome,
+                        "valorAlvo" to m.valorAlvo,
+                        "valorGuardado" to m.valorGuardado,
+                        "prazo" to m.prazo?.toEpochDay(),
+                        "cor" to m.cor,
+                        "atualizadoEm" to m.atualizadoEm,
+                        "deletado" to m.deletado
+                    )
+                )
+            }
+            batch.commit()
+        }
+        prefs.edit { putLong(chaveMarca, modificadas.maxOf { it.atualizadoEm }) }
+    }
+
+    private suspend fun empurrarContas(
+        ref: CollectionReference,
+        perfil: Perfil,
+        chaveMarca: String
+    ) {
+        val marca = prefs.getLong(chaveMarca, 0L)
+        val modificadas = contaAgendadaDao.listarModificadas(perfil, marca)
+        if (modificadas.isEmpty()) return
+
+        modificadas.chunked(400).forEach { lote ->
+            val batch = db.batch()
+            lote.forEach { c ->
+                batch.set(
+                    ref.document(c.uuid),
+                    mapOf(
+                        "descricao" to c.descricao,
+                        "valor" to c.valor,
+                        "tipo" to c.tipo.name,
+                        "categoria" to c.categoria,
+                        "vencimento" to c.vencimento.toEpochDay(),
+                        "pago" to c.pago,
+                        "atualizadoEm" to c.atualizadoEm,
+                        "deletado" to c.deletado
+                    )
+                )
+            }
+            batch.commit()
+        }
+        prefs.edit { putLong(chaveMarca, modificadas.maxOf { it.atualizadoEm }) }
+    }
+
     // ---------- PULL ----------
+
+    private suspend fun aplicarMetaRemota(doc: DocumentSnapshot, perfil: Perfil) {
+        val remotaAtualizadaEm = doc.getLong("atualizadoEm") ?: return
+        val local = metaDao.obterPorUuid(doc.id)
+        if (local != null && local.atualizadoEm >= remotaAtualizadaEm) return
+
+        val meta = Meta(
+            id = local?.id ?: 0,
+            uuid = doc.id,
+            nome = doc.getString("nome") ?: return,
+            valorAlvo = doc.getLong("valorAlvo") ?: return,
+            valorGuardado = doc.getLong("valorGuardado") ?: 0L,
+            prazo = doc.getLong("prazo")?.let { LocalDate.ofEpochDay(it) },
+            cor = doc.getString("cor") ?: "#10B981",
+            perfil = perfil,
+            atualizadoEm = remotaAtualizadaEm,
+            deletado = doc.getBoolean("deletado") ?: false
+        )
+        if (local == null) metaDao.inserir(meta) else metaDao.atualizar(meta)
+    }
+
+    private suspend fun aplicarContaRemota(doc: DocumentSnapshot, perfil: Perfil) {
+        val remotaAtualizadaEm = doc.getLong("atualizadoEm") ?: return
+        val local = contaAgendadaDao.obterPorUuid(doc.id)
+        if (local != null && local.atualizadoEm >= remotaAtualizadaEm) return
+
+        val conta = ContaAgendada(
+            id = local?.id ?: 0,
+            uuid = doc.id,
+            descricao = doc.getString("descricao") ?: return,
+            valor = doc.getLong("valor") ?: return,
+            tipo = parseTipo(doc.getString("tipo")) ?: return,
+            categoria = doc.getString("categoria") ?: "Outros",
+            vencimento = LocalDate.ofEpochDay(doc.getLong("vencimento") ?: return),
+            pago = doc.getBoolean("pago") ?: false,
+            perfil = perfil,
+            atualizadoEm = remotaAtualizadaEm,
+            deletado = doc.getBoolean("deletado") ?: false
+        )
+        if (local == null) contaAgendadaDao.inserir(conta) else contaAgendadaDao.atualizar(conta)
+    }
 
     private suspend fun aplicarTransacaoRemota(doc: DocumentSnapshot, perfil: Perfil) {
         val remotaAtualizadaEm = doc.getLong("atualizadoEm") ?: return
@@ -586,6 +770,12 @@ class SyncManager @Inject constructor(
     private fun cartoesCasaRef(casaId: String): CollectionReference =
         db.collection("casas").document(casaId).collection("cartoes")
 
+    private fun metasCasaRef(casaId: String): CollectionReference =
+        db.collection("casas").document(casaId).collection("metas")
+
+    private fun contasCasaRef(casaId: String): CollectionReference =
+        db.collection("casas").document(casaId).collection("contas")
+
     private fun perfilPessoalRef(uid: String, perfil: Perfil) =
         db.collection("usuarios").document(uid)
             .collection("perfis").document(perfil.name.lowercase())
@@ -598,6 +788,12 @@ class SyncManager @Inject constructor(
 
     private fun cartoesPessoalRef(uid: String, perfil: Perfil): CollectionReference =
         perfilPessoalRef(uid, perfil).collection("cartoes")
+
+    private fun metasPessoalRef(uid: String, perfil: Perfil): CollectionReference =
+        perfilPessoalRef(uid, perfil).collection("metas")
+
+    private fun contasPessoalRef(uid: String, perfil: Perfil): CollectionReference =
+        perfilPessoalRef(uid, perfil).collection("contas")
 
     private fun parseTipo(nome: String?): TipoTransacao? =
         runCatching { TipoTransacao.valueOf(nome ?: "") }.getOrNull()
