@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.finapp.data.AparenciaManager
 import com.finapp.data.PerfilManager
 import com.finapp.data.SegurancaManager
+import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.ConfiguracaoPerfil
 import com.finapp.data.db.entities.Frequencia
@@ -14,6 +15,7 @@ import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoEmpresa
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.TransacaoRecorrente
+import com.finapp.data.db.entities.ehEmpresa
 import android.app.PendingIntent
 import com.finapp.data.io.BackupManager
 import com.finapp.data.io.DadosImportados
@@ -136,6 +138,21 @@ class ConfigViewModel @Inject constructor(
         .flatMapLatest { repository.observarRecorrentesAtivas(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Cartões de crédito do contexto ativo. */
+    val cartoes: StateFlow<List<Cartao>> = perfilDados
+        .flatMapLatest { repository.observarCartoes(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** True quando o contexto de dados atual é de empresa (habilita o DAS mensal). */
+    val contextoEhEmpresa: StateFlow<Boolean> = perfilDados
+        .map { it.ehEmpresa }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** Valor do DAS mensal configurado (0 = não definido), em centavos. */
+    val dasMensal: StateFlow<Long> = recorrentes
+        .map { lista -> lista.firstOrNull { it.descricao == DESCRICAO_DAS }?.valor ?: 0L }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
     fun mudarPerfil(novo: Perfil) {
         perfilManager.mudarPerfil(novo)
         emitir("Modo alterado para ${novo.rotulo}")
@@ -224,11 +241,150 @@ class ConfigViewModel @Inject constructor(
         }
     }
 
+    /**
+     * [valorCentavos] em centavos. Materializa o DAS como despesa mensal
+     * recorrente da empresa (categoria "Impostos", todo dia 20). Valor 0
+     * encerra a recorrência. Só vale nos contextos de empresa.
+     */
+    fun atualizarDas(valorCentavos: Long) {
+        if (valorCentavos < 0L) {
+            emitir("Valor inválido")
+            return
+        }
+        val perfil = perfilDados.value
+        if (!perfil.ehEmpresa) return
+        viewModelScope.launch {
+            runCatching {
+                if (valorCentavos > 0L) {
+                    repository.garantirCategoria(
+                        perfil, CATEGORIA_DAS, TipoTransacao.GASTO, "#EF4444"
+                    )
+                }
+                sincronizarRecorrenciaDas(perfil, valorCentavos)
+            }
+                .onSuccess {
+                    emitir(
+                        if (valorCentavos > 0L) "DAS salvo — lançado como despesa todo dia 20"
+                        else "DAS mensal removido"
+                    )
+                }
+                .onFailure { emitir("Erro ao salvar o DAS") }
+        }
+    }
+
+    /** Cria/atualiza/encerra a recorrência mensal do DAS. */
+    private suspend fun sincronizarRecorrenciaDas(perfil: Perfil, valorCentavos: Long) {
+        val existente = repository.listarRecorrentesAtivas(perfil)
+            .firstOrNull { it.descricao == DESCRICAO_DAS }
+
+        if (valorCentavos <= 0L) {
+            existente?.let { repository.atualizarRecorrente(it.copy(ativa = false)) }
+            return
+        }
+
+        val hoje = LocalDate.now()
+        val proximo = if (hoje.dayOfMonth <= DIA_DAS) {
+            hoje.withDayOfMonth(DIA_DAS)
+        } else {
+            hoje.plusMonths(1).withDayOfMonth(DIA_DAS)
+        }
+
+        if (existente == null) {
+            repository.inserirRecorrente(
+                TransacaoRecorrente(
+                    valor = valorCentavos,
+                    tipo = TipoTransacao.GASTO,
+                    categoria = CATEGORIA_DAS,
+                    descricao = DESCRICAO_DAS,
+                    frequencia = Frequencia.MENSAL,
+                    proximoLancamento = proximo,
+                    perfil = perfil
+                )
+            )
+        } else {
+            repository.atualizarRecorrente(
+                existente.copy(valor = valorCentavos, proximoLancamento = proximo)
+            )
+        }
+    }
+
     fun encerrarRecorrente(recorrente: TransacaoRecorrente) {
         viewModelScope.launch {
             runCatching { repository.atualizarRecorrente(recorrente.copy(ativa = false)) }
                 .onSuccess { emitir("Recorrência encerrada") }
                 .onFailure { emitir("Erro ao encerrar recorrência") }
+        }
+    }
+
+    // ---------- Cartões de crédito ----------
+
+    private fun diasValidos(fechamento: Int, vencimento: Int): Boolean =
+        fechamento in 1..28 && vencimento in 1..28
+
+    fun adicionarCartao(nome: String, diaFechamento: Int, diaVencimento: Int, cor: String) {
+        val nomeLimpo = nome.trim()
+        if (nomeLimpo.isEmpty()) {
+            emitir("Informe o nome do cartão")
+            return
+        }
+        if (!diasValidos(diaFechamento, diaVencimento)) {
+            emitir("Dias de fechamento e vencimento devem estar entre 1 e 28")
+            return
+        }
+        viewModelScope.launch {
+            runCatching {
+                repository.inserirCartao(
+                    Cartao(
+                        nome = nomeLimpo,
+                        diaFechamento = diaFechamento,
+                        diaVencimento = diaVencimento,
+                        cor = cor,
+                        perfil = perfilDados.value
+                    )
+                )
+            }
+                .onSuccess { emitir("Cartão adicionado") }
+                .onFailure { emitir("Erro ao adicionar cartão") }
+        }
+    }
+
+    fun editarCartao(
+        cartao: Cartao,
+        nome: String,
+        diaFechamento: Int,
+        diaVencimento: Int,
+        cor: String
+    ) {
+        val nomeLimpo = nome.trim()
+        if (nomeLimpo.isEmpty()) {
+            emitir("Informe o nome do cartão")
+            return
+        }
+        if (!diasValidos(diaFechamento, diaVencimento)) {
+            emitir("Dias de fechamento e vencimento devem estar entre 1 e 28")
+            return
+        }
+        viewModelScope.launch {
+            runCatching {
+                repository.atualizarCartao(
+                    cartao.copy(
+                        nome = nomeLimpo,
+                        diaFechamento = diaFechamento,
+                        diaVencimento = diaVencimento,
+                        cor = cor
+                    )
+                )
+            }
+                .onSuccess { emitir("Cartão atualizado") }
+                .onFailure { emitir("Erro ao atualizar cartão") }
+        }
+    }
+
+    fun removerCartao(cartao: Cartao) {
+        viewModelScope.launch {
+            runCatching { repository.deletarCartao(cartao) }
+                .onSuccess { emitir("Cartão removido") }
+                .onFailure { emitir("Erro ao remover cartão") }
         }
     }
 
@@ -548,5 +704,10 @@ class ConfigViewModel @Inject constructor(
     private companion object {
         /** Marca a recorrência gerenciada automaticamente pela configuração de salário. */
         const val DESCRICAO_SALARIO = "Salário fixo"
+
+        /** Marca a recorrência gerenciada pela configuração do DAS mensal. */
+        const val DESCRICAO_DAS = "DAS mensal"
+        const val CATEGORIA_DAS = "Impostos"
+        const val DIA_DAS = 20
     }
 }
