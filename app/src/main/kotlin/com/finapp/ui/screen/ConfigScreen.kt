@@ -64,6 +64,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.finapp.BuildConfig
+import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoEmpresa
@@ -97,7 +98,14 @@ fun ConfigScreen(
     val corEmpresa by viewModel.corEmpresa.collectAsStateWithLifecycle()
     val contexto = LocalContext.current
 
+    val contextoEhEmpresa by viewModel.contextoEhEmpresa.collectAsStateWithLifecycle()
+    val dasMensal by viewModel.dasMensal.collectAsStateWithLifecycle()
+    val cartoes by viewModel.cartoes.collectAsStateWithLifecycle()
+
     var dialogSalarioAberto by remember { mutableStateOf(false) }
+    var dialogDasAberto by remember { mutableStateOf(false) }
+    var dialogCartaoAberto by remember { mutableStateOf(false) }
+    var cartaoEmEdicao by remember { mutableStateOf<Cartao?>(null) }
     var dialogCategoriaAberto by remember { mutableStateOf(false) }
     var categoriaEmEdicao by remember { mutableStateOf<Categoria?>(null) }
     var confirmarLimpezaAberto by remember { mutableStateOf(false) }
@@ -453,6 +461,114 @@ fun ConfigScreen(
                 }
                 TextButton(onClick = { dialogSalarioAberto = true }) {
                     Text("Editar")
+                }
+            }
+        }
+
+        // DAS mensal (só nos contextos de empresa): despesa fixa todo dia 20
+        if (contextoEhEmpresa) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "DAS mensal",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (dasMensal > 0L) {
+                                "${Formatadores.moeda(dasMensal)} · despesa todo dia 20"
+                            } else {
+                                "Lança o imposto do MEI como despesa todo mês"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    TextButton(onClick = { dialogDasAberto = true }) {
+                        Text("Editar")
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Cartões de crédito
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Cartões de crédito",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = {
+                cartaoEmEdicao = null
+                dialogCartaoAberto = true
+            }) {
+                Text("+ Novo")
+            }
+        }
+        if (cartoes.isEmpty()) {
+            Text(
+                text = "Nenhum cartão. Cadastre para poder lançar compras no crédito " +
+                    "(o gasto cai no mês da fatura).",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            cartoes.forEach { cartao ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            cartaoEmEdicao = cartao
+                            dialogCartaoAberto = true
+                        }
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .clip(CircleShape)
+                            .background(
+                                runCatching { Color(cartao.cor.toColorInt()) }
+                                    .getOrDefault(Color.Gray)
+                            )
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = cartao.nome,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "fecha dia ${cartao.diaFechamento} · " +
+                                "vence dia ${cartao.diaVencimento}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    TextButton(onClick = { viewModel.removerCartao(cartao) }) {
+                        Text("Remover")
+                    }
                 }
             }
         }
@@ -910,6 +1026,135 @@ fun ConfigScreen(
             },
             dismissButton = {
                 TextButton(onClick = { dialogSalarioAberto = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // ---------- Dialog: editar DAS mensal ----------
+    if (dialogDasAberto) {
+        var dasTexto by remember {
+            mutableStateOf(
+                if (dasMensal > 0L) {
+                    String.format(Locale.US, "%.2f", dasMensal / 100.0)
+                } else {
+                    ""
+                }
+            )
+        }
+        AlertDialog(
+            onDismissRequest = { dialogDasAberto = false },
+            title = { Text("DAS mensal") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = dasTexto,
+                        onValueChange = { dasTexto = it },
+                        label = { Text("Valor (R$)") },
+                        placeholder = { Text("Vazio = sem DAS") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Lançado automaticamente como despesa da empresa " +
+                            "(categoria Impostos) todo dia 20.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.atualizarDas(reaisParaCentavos(dasTexto))
+                        dialogDasAberto = false
+                    }
+                ) {
+                    Text("Salvar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dialogDasAberto = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // ---------- Dialog: novo/editar cartão ----------
+    if (dialogCartaoAberto) {
+        val emEdicao = cartaoEmEdicao
+        var nome by remember(emEdicao) { mutableStateOf(emEdicao?.nome ?: "") }
+        var fechamento by remember(emEdicao) {
+            mutableStateOf(emEdicao?.diaFechamento?.toString() ?: "")
+        }
+        var vencimento by remember(emEdicao) {
+            mutableStateOf(emEdicao?.diaVencimento?.toString() ?: "")
+        }
+        var cor by remember(emEdicao) {
+            mutableStateOf(emEdicao?.cor ?: CoresCategorias.TODAS.first())
+        }
+        AlertDialog(
+            onDismissRequest = { dialogCartaoAberto = false },
+            title = { Text(if (emEdicao == null) "Novo cartão" else "Editar cartão") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = nome,
+                        onValueChange = { if (it.length <= 30) nome = it },
+                        label = { Text("Nome (ex: Nubank)") },
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = fechamento,
+                            onValueChange = { fechamento = it.filter(Char::isDigit).take(2) },
+                            label = { Text("Fecha dia") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = vencimento,
+                            onValueChange = { vencimento = it.filter(Char::isDigit).take(2) },
+                            label = { Text("Vence dia") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Dias entre 1 e 28. Compra após o fechamento entra na " +
+                            "próxima fatura.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    SeletorCores(corSelecionada = cor, onSelecionar = { cor = it })
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val f = fechamento.toIntOrNull() ?: 0
+                        val v = vencimento.toIntOrNull() ?: 0
+                        if (emEdicao == null) {
+                            viewModel.adicionarCartao(nome, f, v, cor)
+                        } else {
+                            viewModel.editarCartao(emEdicao, nome, f, v, cor)
+                        }
+                        dialogCartaoAberto = false
+                    }
+                ) {
+                    Text("Salvar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dialogCartaoAberto = false }) {
                     Text("Cancelar")
                 }
             }
