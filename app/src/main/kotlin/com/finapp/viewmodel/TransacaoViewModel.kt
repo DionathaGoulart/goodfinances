@@ -3,6 +3,7 @@ package com.finapp.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.finapp.data.PerfilManager
+import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.Frequencia
 import com.finapp.data.db.entities.Perfil
@@ -14,6 +15,7 @@ import com.finapp.data.db.entities.podeSerEditadaPor
 import com.finapp.data.io.NotaFiscalManager
 import com.finapp.data.repository.FinanceRepository
 import com.finapp.data.sync.CasaManager
+import com.finapp.data.sync.SyncManager
 import com.finapp.utils.Intervalo
 import com.finapp.utils.PeriodoFiltro
 import com.finapp.utils.fluxoDataAtual
@@ -40,11 +42,18 @@ class TransacaoViewModel @Inject constructor(
     private val repository: FinanceRepository,
     perfilManager: PerfilManager,
     private val casaManager: CasaManager,
-    private val notaFiscalManager: NotaFiscalManager
+    private val notaFiscalManager: NotaFiscalManager,
+    syncManager: SyncManager
 ) : ViewModel() {
 
     /** Balde de dados efetivo (no MEI, acompanha a aba Pessoal/Negócio). */
     val perfil: StateFlow<Perfil> = perfilManager.perfilDados
+
+    /** True quando "compartilhar lançamentos pessoais" está ligado numa casa. */
+    val compartilhandoComCasa: StateFlow<Boolean> =
+        combine(syncManager.compartilharCasaAtivado, casaManager.casa) { compartilhar, casa ->
+            compartilhar && casa != null
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _filtro = MutableStateFlow(PeriodoFiltro.MES)
     val filtro: StateFlow<PeriodoFiltro> = _filtro.asStateFlow()
@@ -132,6 +141,11 @@ class TransacaoViewModel @Inject constructor(
         .flatMapLatest { repository.observarCategoriasAtivas(it, TipoTransacao.GASTO) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Cartões de crédito do perfil — alimentam o seletor do modal. */
+    val cartoes: StateFlow<List<Cartao>> = perfil
+        .flatMapLatest { repository.observarCartoes(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // ---------- Filtros e busca ----------
 
     fun filtrar(filtro: PeriodoFiltro) {
@@ -181,7 +195,8 @@ class TransacaoViewModel @Inject constructor(
         repetirMensalmente: Boolean = false,
         notaFiscal: String = "",
         parcelas: Int = 1,
-        lancarProLaborePessoal: Boolean = false
+        lancarProLaborePessoal: Boolean = false,
+        cartao: Cartao? = null
     ) {
         if (valorCentavos <= 0L) {
             emitir("Informe um valor maior que zero")
@@ -193,6 +208,9 @@ class TransacaoViewModel @Inject constructor(
             val autor = usuario?.nome.orEmpty()
             val autorUid = usuario?.uid.orEmpty()
             val totalParcelas = parcelas.coerceIn(1, 24)
+            // Compra no crédito: a 1ª parcela cai no vencimento da fatura da
+            // compra; as demais, nas faturas dos meses seguintes.
+            val vencimentoBase = cartao?.let { repository.vencimentoFatura(it, data) }
             runCatching {
                 repeat(totalParcelas) { indice ->
                     val descricaoFinal = if (totalParcelas > 1) {
@@ -201,21 +219,28 @@ class TransacaoViewModel @Inject constructor(
                     } else {
                         descricao.trim()
                     }
+                    val dataLancamento = if (vencimentoBase != null) {
+                        vencimentoBase.plusMonths(indice.toLong())
+                    } else {
+                        data.plusMonths(indice.toLong())
+                    }
                     repository.inserirTransacao(
                         Transacao(
                             valor = valorCentavos,
                             tipo = tipo,
                             categoria = categoria,
                             descricao = descricaoFinal,
-                            data = data.plusMonths(indice.toLong()),
+                            data = dataLancamento,
                             perfil = perfil.value,
                             criadoPor = autor,
                             criadoPorUid = autorUid,
-                            notaFiscal = if (indice == 0) notaFiscal else ""
+                            notaFiscal = if (indice == 0) notaFiscal else "",
+                            cartaoUuid = cartao?.uuid.orEmpty(),
+                            dataCompra = if (cartao != null) data else null
                         )
                     )
                 }
-                if (repetirMensalmente && totalParcelas == 1) {
+                if (repetirMensalmente && totalParcelas == 1 && cartao == null) {
                     repository.inserirRecorrente(
                         TransacaoRecorrente(
                             valor = valorCentavos,
@@ -239,6 +264,10 @@ class TransacaoViewModel @Inject constructor(
                 .onSuccess {
                     emitir(
                         when {
+                            cartao != null && totalParcelas > 1 ->
+                                "Compra no crédito em ${totalParcelas}x — cai nas faturas"
+                            cartao != null ->
+                                "Compra no crédito registrada — cai na fatura"
                             totalParcelas > 1 ->
                                 "Compra parcelada em ${totalParcelas}x adicionada"
                             lancarProLaborePessoal ->
@@ -317,6 +346,10 @@ class TransacaoViewModel @Inject constructor(
     private fun juntar(base: String, detalhe: String): String =
         if (detalhe.isBlank()) base else "$base — $detalhe"
 
+    /** Vencimento previsto da fatura de uma compra no crédito (prévia no modal). */
+    fun previsaoVencimento(cartao: Cartao, dataCompra: LocalDate): LocalDate =
+        repository.vencimentoFatura(cartao, dataCompra)
+
     /** Espelho do pró-labore no balde Pessoal do modo misto. */
     private suspend fun lancarProLabore(
         valorCentavos: Long,
@@ -373,6 +406,20 @@ class TransacaoViewModel @Inject constructor(
             runCatching { repository.deletarTransacao(transacao) }
                 .onSuccess { ultimaDeletada = transacao }
                 .onFailure { emitir("Erro ao deletar transação") }
+        }
+    }
+
+    /** Alterna esconder/reexibir da visão Membros (só faz sentido no pessoal). */
+    fun alternarOculto(transacao: Transacao) {
+        viewModelScope.launch {
+            runCatching { repository.ocultarTransacao(transacao, !transacao.oculto) }
+                .onSuccess {
+                    emitir(
+                        if (!transacao.oculto) "Escondido da visão Membros"
+                        else "Voltou a aparecer na visão Membros"
+                    )
+                }
+                .onFailure { emitir("Erro ao esconder transação") }
         }
     }
 

@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
@@ -98,6 +99,10 @@ fun TransacaoModal(
     var repetirMensalmente by remember { mutableStateOf(false) }
     var parcelas by remember { mutableStateOf(1) }
     var proLabore by remember { mutableStateOf(false) }
+    // Forma de pagamento (só gasto novo): dinheiro/débito ou crédito num cartão
+    var pagamentoCredito by remember { mutableStateOf(false) }
+    var cartaoSelecionado by remember { mutableStateOf<Cartao?>(null) }
+    val cartoes by viewModel.cartoes.collectAsStateWithLifecycle()
 
     var erroValor by remember { mutableStateOf<String?>(null) }
     var erroCategoria by remember { mutableStateOf<String?>(null) }
@@ -409,6 +414,112 @@ fun TransacaoModal(
                 }
             }
 
+            // ---------- Forma de pagamento (só gasto novo) ----------
+            if (!edicao && tipo == TipoTransacao.GASTO) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Forma de pagamento",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            pagamentoCredito = false
+                            cartaoSelecionado = null
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (!pagamentoCredito) corAcento
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (!pagamentoCredito) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    ) {
+                        Text("Dinheiro/Débito")
+                    }
+                    Button(
+                        onClick = {
+                            pagamentoCredito = true
+                            if (cartaoSelecionado == null) {
+                                cartaoSelecionado = cartoes.firstOrNull()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (pagamentoCredito) corAcento
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (pagamentoCredito) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    ) {
+                        Text("Crédito")
+                    }
+                }
+
+                if (pagamentoCredito) {
+                    if (cartoes.isEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Nenhum cartão cadastrado. Adicione um em " +
+                                "Configurações › Finanças › Cartões.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        var menuCartaoAberto by remember { mutableStateOf(false) }
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { menuCartaoAberto = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(cartaoSelecionado?.nome ?: "Escolher cartão")
+                            }
+                            DropdownMenu(
+                                expanded = menuCartaoAberto,
+                                onDismissRequest = { menuCartaoAberto = false }
+                            ) {
+                                cartoes.forEach { cartao ->
+                                    DropdownMenuItem(
+                                        text = { Text(cartao.nome) },
+                                        onClick = {
+                                            cartaoSelecionado = cartao
+                                            menuCartaoAberto = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        cartaoSelecionado?.let { cartao ->
+                            val vencimento = viewModel.previsaoVencimento(cartao, data)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (parcelas > 1) {
+                                    "1ª parcela na fatura que vence " +
+                                        Formatadores.dataCurta(vencimento)
+                                } else {
+                                    "Cai na fatura que vence " +
+                                        Formatadores.dataCurta(vencimento)
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
             // ---------- Parcelamento (só gasto novo) ----------
             if (!edicao && tipo == TipoTransacao.GASTO) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -475,7 +586,7 @@ fun TransacaoModal(
             }
 
             // ---------- Repetir mensalmente (só para nova transação à vista) ----------
-            if (!edicao && parcelas == 1) {
+            if (!edicao && parcelas == 1 && !pagamentoCredito) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -523,9 +634,12 @@ fun TransacaoModal(
                         ?: categoriaOriginal?.takeIf {
                             edicao && it.equals(nomeDigitado, ignoreCase = true)
                         }
+                    val usaCredito = !edicao && tipo == TipoTransacao.GASTO && pagamentoCredito
                     when {
                         valorCentavos <= 0L -> erroValor = "Informe um valor maior que zero"
                         categoriaFinal == null -> erroCategoria = "Escolha uma categoria da lista"
+                        usaCredito && cartaoSelecionado == null ->
+                            erroValor = "Cadastre um cartão para usar crédito"
                         else -> {
                             if (edicao) {
                                 viewModel.editarTransacao(
@@ -552,7 +666,8 @@ fun TransacaoModal(
                                     repetirMensalmente = repetirMensalmente,
                                     notaFiscal = notaFiscal,
                                     parcelas = parcelas,
-                                    lancarProLaborePessoal = proLabore
+                                    lancarProLaborePessoal = proLabore,
+                                    cartao = if (usaCredito) cartaoSelecionado else null
                                 )
                             }
                             onFechar()
