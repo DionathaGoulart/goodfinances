@@ -1,0 +1,38 @@
+// Firestore Security Rules — GoodFinances
+// Cole tudo isto na aba "Rules" do Firestore (Console Firebase) e publique.
+//
+// Observação: o wildcard {documento=**} já cobre TODAS as subcoleções de
+// cada casa e de cada usuário — incluindo as coleções novas de cartões
+// (casas/{id}/cartoes e usuarios/{uid}/perfis/{perfil}/cartoes). Não é
+// preciso adicionar regra específica para cartões.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ----- Casa compartilhada -----
+    match /casas/{casaId} {
+      // Qualquer usuário logado pode criar uma casa e buscar pelo código de convite
+      allow create: if request.auth != null;
+      allow read: if request.auth != null;
+      // Entrar/sair (alterar a lista de membros): membros atuais ou quem está se adicionando
+      allow update: if request.auth != null
+        && (request.auth.uid in resource.data.membros
+            || request.auth.uid in request.resource.data.membros);
+
+      // Transações, categorias, cartões e o espelho dos membros da casa:
+      // somente membros daquela casa
+      match /{documento=**} {
+        allow read, write: if request.auth != null
+          && request.auth.uid in
+             get(/databases/$(database)/documents/casas/$(casaId)).data.membros;
+      }
+    }
+
+    // ----- Dados pessoais e backups do próprio usuário -----
+    // Cobre usuarios/{uid}/perfis/{perfil}/(transacoes|categorias|cartoes) e backups
+    match /usuarios/{uid}/{documento=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
