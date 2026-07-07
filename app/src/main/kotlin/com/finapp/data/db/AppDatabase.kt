@@ -5,6 +5,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.ConfiguracaoPerfil
 import com.finapp.data.db.entities.Transacao
@@ -15,9 +16,10 @@ import com.finapp.data.db.entities.TransacaoRecorrente
         Transacao::class,
         Categoria::class,
         ConfiguracaoPerfil::class,
-        TransacaoRecorrente::class
+        TransacaoRecorrente::class,
+        Cartao::class
     ],
-    version = 8,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -26,6 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoriaDao(): CategoriaDao
     abstract fun configuracaoPerfilDao(): ConfiguracaoPerfilDao
     abstract fun transacaoRecorrenteDao(): TransacaoRecorrenteDao
+    abstract fun cartaoDao(): CartaoDao
 
     companion object {
         const val NOME = "finapp.db"
@@ -262,6 +265,44 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE Transacao ADD COLUMN transferenciaId TEXT NOT NULL DEFAULT ''"
                 )
+            }
+        }
+
+        /** v8 -> v9: Transacao ganha oculto (esconder da visão Membros da casa). */
+        val MIGRACAO_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE Transacao ADD COLUMN oculto INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
+        /**
+         * v9 -> v10: cartões de crédito. Nova tabela Cartao e, na Transacao,
+         * cartaoUuid (vínculo com o cartão) + dataCompra (dia da compra;
+         * a `data` passa a ser o vencimento da fatura no crédito).
+         */
+        val MIGRACAO_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS Cartao (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "uuid TEXT NOT NULL, nome TEXT NOT NULL, " +
+                        "diaFechamento INTEGER NOT NULL, diaVencimento INTEGER NOT NULL, " +
+                        "cor TEXT NOT NULL, perfil TEXT NOT NULL, " +
+                        "atualizadoEm INTEGER NOT NULL, deletado INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_Cartao_perfil ON Cartao (perfil)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_Cartao_uuid ON Cartao (uuid)"
+                )
+                db.execSQL(
+                    "ALTER TABLE Transacao ADD COLUMN cartaoUuid TEXT NOT NULL DEFAULT ''"
+                )
+                // dataCompra é nullable (epoch day) — sem DEFAULT: fica NULL nas antigas
+                db.execSQL("ALTER TABLE Transacao ADD COLUMN dataCompra INTEGER")
             }
         }
     }
