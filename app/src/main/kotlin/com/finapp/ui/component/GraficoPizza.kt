@@ -5,6 +5,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,7 +55,8 @@ internal fun corDeHex(hex: String): Color =
 @Composable
 fun GraficoPizza(
     fatias: List<FatiaPizza>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onVerCategoria: ((String) -> Unit)? = null
 ) {
     if (fatias.isEmpty()) {
         Box(
@@ -145,15 +147,33 @@ fun GraficoPizza(
         if (selecionada in fatias.indices) {
             val fatia = fatias[selecionada]
             val percentual = fatia.valor / total * 100
+            val sufixo = if (onVerCategoria != null) " ›" else ""
             Text(
                 text = "${fatia.nome} — ${Formatadores.moeda(fatia.valor)} " +
-                    "(${String.format(Formatadores.LOCALE_BR, "%.1f", percentual)}%)",
+                    "(${String.format(Formatadores.LOCALE_BR, "%.1f", percentual)}%)$sufixo",
                 style = MaterialTheme.typography.titleMedium,
                 color = corDeHex(fatia.cor),
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
                     .padding(top = 8.dp)
+                    .let { base ->
+                        if (onVerCategoria != null) {
+                            base.clickable { onVerCategoria(fatia.nome) }
+                        } else {
+                            base
+                        }
+                    }
             )
+            if (onVerCategoria != null) {
+                Text(
+                    text = "Toque para ver os lançamentos",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .clickable { onVerCategoria(fatia.nome) }
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
