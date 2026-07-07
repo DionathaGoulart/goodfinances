@@ -76,7 +76,9 @@ class BackupManager @Inject constructor(
             val json = exportManager.gerarJsonTexto(
                 perfil = perfil,
                 transacoes = transacoes,
-                categorias = repository.listarCategorias(perfil)
+                categorias = repository.listarCategorias(perfil),
+                metas = repository.listarMetas(perfil),
+                contas = repository.listarContas(perfil)
             )
             diretorio.resolve("${prefixo(perfil)}$timestamp.json")
                 .writeText(json, Charsets.UTF_8)
@@ -124,12 +126,18 @@ class BackupManager @Inject constructor(
         }
 
         val dados = importManager.lerTexto(json, perfil)
-        return repository.importarDados(
+        val restauradas = repository.importarDados(
             transacoes = dados.transacoes,
             categorias = dados.categorias,
             perfil = perfil,
             substituir = false
         )
+        // Metas e contas do backup (seções próprias; ausentes em backups antigos)
+        runCatching {
+            repository.importarMetas(perfil, exportManager.lerMetasBackup(json, perfil))
+            repository.importarContas(perfil, exportManager.lerContasBackup(json, perfil))
+        }
+        return restauradas
     }
 
     // ---------- Nuvem ----------
