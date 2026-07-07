@@ -45,6 +45,15 @@ class PerfilManager @Inject constructor(
     /** False apenas na primeira abertura — dispara a tela de seleção de perfil. */
     val perfilFoiEscolhido: StateFlow<Boolean> = _perfilFoiEscolhido.asStateFlow()
 
+    private val _dicasVistas = MutableStateFlow(prefs.getBoolean(CHAVE_DICAS, false))
+    /** False até o usuário fechar as dicas iniciais (mostradas uma única vez). */
+    val dicasVistas: StateFlow<Boolean> = _dicasVistas.asStateFlow()
+
+    fun marcarDicasVistas() {
+        prefs.edit { putBoolean(CHAVE_DICAS, true) }
+        _dicasVistas.value = true
+    }
+
     private val _tipoEmpresa = MutableStateFlow(lerTipoEmpresa())
     /** Tipo da empresa (MEI/CNPJ) — informativo, só existe nos modos com empresa. */
     val tipoEmpresa: StateFlow<TipoEmpresa?> = _tipoEmpresa.asStateFlow()
@@ -131,5 +140,6 @@ class PerfilManager @Inject constructor(
         const val CHAVE_CONTEXTO_MEI_LEGADO = "contexto_mei"
         const val CHAVE_TIPO_EMPRESA = "tipo_empresa"
         const val CHAVE_CASA_ID = "casa_id"
+        const val CHAVE_DICAS = "dicas_iniciais_vistas"
     }
 }
