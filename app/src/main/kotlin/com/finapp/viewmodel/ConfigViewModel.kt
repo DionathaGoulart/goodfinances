@@ -23,6 +23,7 @@ import com.finapp.data.io.DriveBackupManager
 import com.finapp.data.io.ExportManager
 import com.finapp.data.io.ImportManager
 import com.finapp.data.io.NotaFiscalManager
+import com.finapp.data.notif.NotificacaoManager
 import com.finapp.data.repository.FinanceRepository
 import com.finapp.data.sync.SyncManager
 import com.finapp.utils.CorApp
@@ -56,8 +57,21 @@ class ConfigViewModel @Inject constructor(
     private val notaFiscalManager: NotaFiscalManager,
     private val segurancaManager: SegurancaManager,
     private val syncManager: SyncManager,
-    private val driveBackupManager: DriveBackupManager
+    private val driveBackupManager: DriveBackupManager,
+    private val notificacaoManager: NotificacaoManager
 ) : ViewModel() {
+
+    // ---------- Notificações ----------
+
+    val notificacoesAtivadas: StateFlow<Boolean> = notificacaoManager.ativado
+
+    fun alternarNotificacoes(ativo: Boolean) {
+        notificacaoManager.alternar(ativo)
+        emitir(
+            if (ativo) "Notificações ativadas — avisos de orçamento, DAS e recorrências"
+            else "Notificações desativadas"
+        )
+    }
 
     // ---------- Sincronização entre aparelhos ----------
 
@@ -682,6 +696,8 @@ class ConfigViewModel @Inject constructor(
                     repository.listarTransacoes(balde)
                         .forEach { notaFiscalManager.apagar(it.notaFiscal) }
                     repository.deletarTodasTransacoes(balde)
+                    repository.deletarTodasMetas(balde)
+                    repository.deletarTodasContas(balde)
                 }
                 // Feed da visão Membros: zera e deixa o push re-espelhar
                 // só o que sobrou (sem isso, órfãos antigos ficam para sempre)

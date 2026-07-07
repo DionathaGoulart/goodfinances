@@ -112,6 +112,9 @@ dependencies {
     // Widget de lançamento rápido na home do Android
     implementation(libs.androidx.glance.appwidget)
 
+    // Notificações locais agendadas (orçamento, DAS, recorrências, inatividade)
+    implementation(libs.androidx.work.runtime)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

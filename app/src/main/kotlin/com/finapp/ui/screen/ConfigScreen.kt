@@ -832,6 +832,47 @@ fun ConfigScreen(
 
         Spacer(modifier = Modifier.height(32.dp))
 
+        // ---------- Notificações ----------
+        Text(
+            text = "NOTIFICAÇÕES",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        val notificacoesAtivadas by viewModel.notificacoesAtivadas.collectAsStateWithLifecycle()
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Avisos financeiros",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Orçamento estourando, DAS vencendo, recorrências do dia " +
+                            "e lembrete de registro",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = notificacoesAtivadas,
+                    onCheckedChange = viewModel::alternarNotificacoes
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
         // ---------- Segurança ----------
         Text(
             text = "SEGURANÇA",
