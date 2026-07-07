@@ -43,7 +43,22 @@ data class Transacao(
      * Nome do arquivo da nota fiscal em `filesDir/notas/` (vazio = sem nota).
      * Disponível em todos os contextos; o arquivo é local e fica fora do sync.
      */
-    val notaFiscal: String = ""
+    val notaFiscal: String = "",
+    /**
+     * Oculto da visão Membros da casa: mesmo com "compartilhar lançamentos
+     * pessoais" ligado, um lançamento marcado como oculto NÃO é espelhado
+     * para os outros membros. Continua contando no seu próprio saldo/análise.
+     * Só faz sentido nos baldes pessoais.
+     */
+    val oculto: Boolean = false,
+    /**
+     * Uuid do cartão de crédito (vazio = compra em dinheiro/débito). Numa
+     * compra no crédito, [data] é o VENCIMENTO da fatura (quando o gasto
+     * conta no mês) e [dataCompra] é o dia em que a compra foi feita.
+     */
+    val cartaoUuid: String = "",
+    /** Dia em que a compra no crédito foi feita (null = não é compra de cartão). */
+    val dataCompra: LocalDate? = null
 )
 
 /**

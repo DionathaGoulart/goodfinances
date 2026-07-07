@@ -2,8 +2,10 @@ package com.finapp.data.sync
 
 import android.content.Context
 import androidx.core.content.edit
+import com.finapp.data.db.CartaoDao
 import com.finapp.data.db.CategoriaDao
 import com.finapp.data.db.TransacaoDao
+import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
@@ -57,7 +59,8 @@ class SyncManager @Inject constructor(
     @ApplicationContext context: Context,
     private val casaManager: CasaManager,
     private val transacaoDao: TransacaoDao,
-    private val categoriaDao: CategoriaDao
+    private val categoriaDao: CategoriaDao,
+    private val cartaoDao: CartaoDao
 ) {
     private val db = FirebaseFirestore.getInstance()
     private val prefs = context.getSharedPreferences("finapp_prefs", Context.MODE_PRIVATE)
@@ -245,6 +248,13 @@ class SyncManager @Inject constructor(
             listeners = listenersCasa,
             trabalhos = trabalhosCasa
         )
+        ligarSyncCartoes(
+            cartoes = cartoesCasaRef(casaId),
+            perfil = Perfil.CASA,
+            chaveMarca = "sync_marca_cartoes_$casaId",
+            listeners = listenersCasa,
+            trabalhos = trabalhosCasa
+        )
     }
 
     private fun iniciarSyncPessoal(uid: String) {
@@ -258,6 +268,39 @@ class SyncManager @Inject constructor(
                 listeners = listenersPessoal,
                 trabalhos = trabalhosPessoal
             )
+            ligarSyncCartoes(
+                cartoes = cartoesPessoalRef(uid, perfil),
+                perfil = perfil,
+                chaveMarca = "sync_marca_cart_${uid}_${perfil.name}",
+                listeners = listenersPessoal,
+                trabalhos = trabalhosPessoal
+            )
+        }
+    }
+
+    /** PULL em tempo real + PUSH reativo dos cartões de um balde. */
+    private fun ligarSyncCartoes(
+        cartoes: CollectionReference,
+        perfil: Perfil,
+        chaveMarca: String,
+        listeners: MutableList<ListenerRegistration>,
+        trabalhos: MutableList<Job>
+    ) {
+        listeners += cartoes.addSnapshotListener { snapshot, erro ->
+            if (erro != null || snapshot == null) return@addSnapshotListener
+            val docs = snapshot.documentChanges
+                .filter { it.type != DocumentChange.Type.REMOVED }
+                .map { it.document }
+            if (docs.isNotEmpty()) {
+                escopo.launch { docs.forEach { aplicarCartaoRemoto(it, perfil) } }
+            }
+        }
+        trabalhos += escopo.launch {
+            cartaoDao.observarUltimaModificacao(perfil)
+                .debounce(1_500)
+                .collect {
+                    runCatching { empurrarCartoes(cartoes, perfil, chaveMarca) }
+                }
         }
     }
 
@@ -343,7 +386,9 @@ class SyncManager @Inject constructor(
         modificadas.chunked(400).forEach { lote ->
             val batch = db.batch()
             lote.forEach { t ->
-                if (deletarTombstones && t.deletado) {
+                // No espelho da casa (deletarTombstones), lançamento OCULTO some
+                // do feed dos outros membros — tratado como uma remoção.
+                if (deletarTombstones && (t.deletado || t.oculto)) {
                     batch.delete(ref.document(t.uuid))
                     return@forEach
                 }
@@ -361,7 +406,10 @@ class SyncManager @Inject constructor(
                         "criadoPorUid" to t.criadoPorUid.ifBlank {
                             if (autorPadrao != null) meuUid.orEmpty() else ""
                         },
-                        "transferenciaId" to t.transferenciaId
+                        "transferenciaId" to t.transferenciaId,
+                        "oculto" to t.oculto,
+                        "cartaoUuid" to t.cartaoUuid,
+                        "dataCompra" to t.dataCompra?.toEpochDay()
                     )
                 )
             }
@@ -403,6 +451,35 @@ class SyncManager @Inject constructor(
         prefs.edit { putLong(chaveMarca, modificadas.maxOf { it.atualizadoEm }) }
     }
 
+    private suspend fun empurrarCartoes(
+        ref: CollectionReference,
+        perfil: Perfil,
+        chaveMarca: String
+    ) {
+        val marca = prefs.getLong(chaveMarca, 0L)
+        val modificadas = cartaoDao.listarModificadas(perfil, marca)
+        if (modificadas.isEmpty()) return
+
+        modificadas.chunked(400).forEach { lote ->
+            val batch = db.batch()
+            lote.forEach { c ->
+                batch.set(
+                    ref.document(c.uuid),
+                    mapOf(
+                        "nome" to c.nome,
+                        "diaFechamento" to c.diaFechamento,
+                        "diaVencimento" to c.diaVencimento,
+                        "cor" to c.cor,
+                        "atualizadoEm" to c.atualizadoEm,
+                        "deletado" to c.deletado
+                    )
+                )
+            }
+            batch.commit()
+        }
+        prefs.edit { putLong(chaveMarca, modificadas.maxOf { it.atualizadoEm }) }
+    }
+
     // ---------- PULL ----------
 
     private suspend fun aplicarTransacaoRemota(doc: DocumentSnapshot, perfil: Perfil) {
@@ -425,6 +502,9 @@ class SyncManager @Inject constructor(
             criadoPor = doc.getString("criadoPor") ?: "",
             criadoPorUid = doc.getString("criadoPorUid") ?: "",
             transferenciaId = doc.getString("transferenciaId") ?: "",
+            oculto = doc.getBoolean("oculto") ?: false,
+            cartaoUuid = doc.getString("cartaoUuid") ?: "",
+            dataCompra = doc.getLong("dataCompra")?.let { LocalDate.ofEpochDay(it) },
             // A nota fiscal é um arquivo local — nunca vem do remoto
             notaFiscal = local?.notaFiscal ?: ""
         )
@@ -476,6 +556,25 @@ class SyncManager @Inject constructor(
         if (local == null) categoriaDao.inserir(categoria) else categoriaDao.atualizar(categoria)
     }
 
+    private suspend fun aplicarCartaoRemoto(doc: DocumentSnapshot, perfil: Perfil) {
+        val remotaAtualizadaEm = doc.getLong("atualizadoEm") ?: return
+        val local = cartaoDao.obterPorUuid(doc.id)
+        if (local != null && local.atualizadoEm >= remotaAtualizadaEm) return
+
+        val cartao = Cartao(
+            id = local?.id ?: 0,
+            uuid = doc.id,
+            nome = doc.getString("nome") ?: return,
+            diaFechamento = (doc.getLong("diaFechamento") ?: return).toInt(),
+            diaVencimento = (doc.getLong("diaVencimento") ?: return).toInt(),
+            cor = doc.getString("cor") ?: "#8B5CF6",
+            perfil = perfil,
+            atualizadoEm = remotaAtualizadaEm,
+            deletado = doc.getBoolean("deletado") ?: false
+        )
+        if (local == null) cartaoDao.inserir(cartao) else cartaoDao.atualizar(cartao)
+    }
+
     // ---------- Auxiliares ----------
 
     private fun transacoesCasaRef(casaId: String): CollectionReference =
@@ -483,6 +582,9 @@ class SyncManager @Inject constructor(
 
     private fun categoriasCasaRef(casaId: String): CollectionReference =
         db.collection("casas").document(casaId).collection("categorias")
+
+    private fun cartoesCasaRef(casaId: String): CollectionReference =
+        db.collection("casas").document(casaId).collection("cartoes")
 
     private fun perfilPessoalRef(uid: String, perfil: Perfil) =
         db.collection("usuarios").document(uid)
@@ -493,6 +595,9 @@ class SyncManager @Inject constructor(
 
     private fun categoriasPessoalRef(uid: String, perfil: Perfil): CollectionReference =
         perfilPessoalRef(uid, perfil).collection("categorias")
+
+    private fun cartoesPessoalRef(uid: String, perfil: Perfil): CollectionReference =
+        perfilPessoalRef(uid, perfil).collection("cartoes")
 
     private fun parseTipo(nome: String?): TipoTransacao? =
         runCatching { TipoTransacao.valueOf(nome ?: "") }.getOrNull()

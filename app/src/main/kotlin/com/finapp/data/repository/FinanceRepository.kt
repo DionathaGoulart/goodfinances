@@ -3,11 +3,13 @@ package com.finapp.data.repository
 import androidx.room.withTransaction
 import com.finapp.data.CategoriasPadrao
 import com.finapp.data.db.AppDatabase
+import com.finapp.data.db.CartaoDao
 import com.finapp.data.db.CategoriaDao
 import com.finapp.data.db.ConfiguracaoPerfilDao
 import com.finapp.data.db.SomaPorCategoria
 import com.finapp.data.db.TransacaoDao
 import com.finapp.data.db.TransacaoRecorrenteDao
+import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.ConfiguracaoPerfil
 import com.finapp.data.db.entities.Frequencia
@@ -17,6 +19,7 @@ import com.finapp.data.db.entities.Transacao
 import com.finapp.data.db.entities.TransacaoRecorrente
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
+import java.time.YearMonth
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,7 +33,8 @@ class FinanceRepository @Inject constructor(
     private val transacaoDao: TransacaoDao,
     private val categoriaDao: CategoriaDao,
     private val configuracaoPerfilDao: ConfiguracaoPerfilDao,
-    private val transacaoRecorrenteDao: TransacaoRecorrenteDao
+    private val transacaoRecorrenteDao: TransacaoRecorrenteDao,
+    private val cartaoDao: CartaoDao
 ) {
 
     private fun agora() = System.currentTimeMillis()
@@ -52,6 +56,13 @@ class FinanceRepository @Inject constructor(
             transacaoDao.atualizar(it.copy(deletado = true, atualizadoEm = momento))
         }
     }
+
+    /**
+     * Marca/desmarca um lançamento como oculto da visão Membros da casa.
+     * Carimba [atualizadoEm] para o sync propagar (o espelho remove o doc).
+     */
+    suspend fun ocultarTransacao(transacao: Transacao, oculto: Boolean) =
+        transacaoDao.atualizar(transacao.copy(oculto = oculto, atualizadoEm = agora()))
 
     /** Desfaz uma deleção lógica (undo do swipe/modal) — o par junto. */
     suspend fun restaurarTransacao(transacao: Transacao) {
@@ -95,6 +106,7 @@ class FinanceRepository @Inject constructor(
         transacaoDao.deletarTodas(Perfil.CASA_MEMBROS)
         categoriaDao.deletarTodas(Perfil.CASA)
         transacaoRecorrenteDao.deletarTodas(Perfil.CASA)
+        cartaoDao.deletarTodos(Perfil.CASA)
     }
 
     /** Arquivos de nota fiscal ainda referenciados — limpeza de órfãos. */
@@ -190,12 +202,25 @@ class FinanceRepository @Inject constructor(
     }
 
     private suspend fun garantirCategoria(perfil: Perfil, nome: String, tipo: TipoTransacao) {
+        garantirCategoria(perfil, nome, tipo, "#6B7280")
+    }
+
+    /**
+     * Garante que existe a categoria [nome]/[tipo] no perfil (cria se faltar).
+     * Usado por recursos que dependem de uma categoria fixa (ex: DAS mensal).
+     */
+    suspend fun garantirCategoria(
+        perfil: Perfil,
+        nome: String,
+        tipo: TipoTransacao,
+        cor: String
+    ) {
         val existe = categoriaDao.listarTodas(perfil).any {
             it.nome.equals(nome, ignoreCase = true) && it.tipo == tipo
         }
         if (!existe) {
             categoriaDao.inserir(
-                Categoria(nome = nome, tipo = tipo, cor = "#6B7280", perfil = perfil)
+                Categoria(nome = nome, tipo = tipo, cor = cor, perfil = perfil)
             )
         }
     }
@@ -315,6 +340,41 @@ class FinanceRepository @Inject constructor(
         }
         if (novas.isNotEmpty()) transacaoDao.inserirTodas(novas)
         return novas.size + restauradas
+    }
+
+    // ---------- Cartões de crédito ----------
+
+    fun observarCartoes(perfil: Perfil): Flow<List<Cartao>> =
+        cartaoDao.observarTodos(perfil)
+
+    suspend fun listarCartoes(perfil: Perfil): List<Cartao> = cartaoDao.listarTodos(perfil)
+
+    suspend fun inserirCartao(cartao: Cartao): Long = cartaoDao.inserir(cartao)
+
+    suspend fun atualizarCartao(cartao: Cartao) =
+        cartaoDao.atualizar(cartao.copy(atualizadoEm = agora()))
+
+    /** Deleção lógica (tombstone). */
+    suspend fun deletarCartao(cartao: Cartao) =
+        cartaoDao.atualizar(cartao.copy(deletado = true, atualizadoEm = agora()))
+
+    /**
+     * Vencimento da fatura em que uma compra de [dataCompra] entra.
+     * Compra até o dia do fechamento cai na fatura que fecha no mês da compra;
+     * depois do fechamento, na fatura do mês seguinte. O vencimento fica no
+     * mesmo mês do fechamento se o dia de vencimento for depois do fechamento,
+     * senão no mês seguinte.
+     */
+    fun vencimentoFatura(cartao: Cartao, dataCompra: LocalDate): LocalDate {
+        val fech = cartao.diaFechamento
+        val venc = cartao.diaVencimento
+        val mesFecha = if (dataCompra.dayOfMonth <= fech) {
+            YearMonth.from(dataCompra)
+        } else {
+            YearMonth.from(dataCompra).plusMonths(1)
+        }
+        val mesVence = if (venc > fech) mesFecha else mesFecha.plusMonths(1)
+        return mesVence.atDay(venc.coerceAtMost(mesVence.lengthOfMonth()))
     }
 
     // ---------- Configuração do perfil ----------
