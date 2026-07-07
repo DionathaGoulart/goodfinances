@@ -134,13 +134,26 @@ class AnaliseViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Estatísticas rápidas do período filtrado. */
-    val estatisticas: StateFlow<Estatisticas> =
+    /**
+     * Transações do período filtrado, JÁ sem as transferências entre baldes
+     * (que não são ganho nem gasto). Base das estatísticas e do detalhamento
+     * dos cards.
+     */
+    val transacoesDoPeriodo: StateFlow<List<Transacao>> =
         combine(perfil, intervalo) { p, i -> p to i }
             .flatMapLatest { (p, i) ->
                 repository.observarTransacoesPeriodo(p, i.inicio, i.fim)
-                    .map { transacoes -> calcularEstatisticas(transacoes, i) }
+                    .map { lista ->
+                        lista.filter { it.categoria != FinanceRepository.NOME_TRANSFERENCIA }
+                    }
             }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Estatísticas rápidas do período filtrado. */
+    val estatisticas: StateFlow<Estatisticas> =
+        combine(transacoesDoPeriodo, intervalo) { transacoes, i ->
+            calcularEstatisticas(transacoes, i)
+        }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estatisticas())
 
     /** Tipo da empresa (MEI/CNPJ) — muda o conteúdo do painel fiscal. */
@@ -210,7 +223,10 @@ class AnaliseViewModel @Inject constructor(
         transacoes: List<Transacao>,
         mesAtual: YearMonth
     ): List<ValorMensal> {
-        val porMes = transacoes.groupBy { YearMonth.from(it.data) }
+        // Transferências entre baldes não são ganho nem gasto — fora do comparativo.
+        val porMes = transacoes
+            .filter { it.categoria != FinanceRepository.NOME_TRANSFERENCIA }
+            .groupBy { YearMonth.from(it.data) }
         return (5 downTo 0).map { atras ->
             val mes = mesAtual.minusMonths(atras.toLong())
             val doMes = porMes[mes].orEmpty()
