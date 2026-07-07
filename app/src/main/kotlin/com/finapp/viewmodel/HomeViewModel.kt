@@ -15,7 +15,6 @@ import com.finapp.data.io.NotaFiscalManager
 import com.finapp.data.repository.FinanceRepository
 import com.finapp.data.sync.CasaManager
 import com.finapp.data.sync.SyncManager
-import com.finapp.utils.PeriodoFiltro
 import com.finapp.utils.fluxoDataAtual
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -71,6 +71,12 @@ class HomeViewModel @Inject constructor(
             ativo && usuario != null
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+    /** True quando "compartilhar lançamentos pessoais" está ligado numa casa. */
+    val compartilhandoComCasa: StateFlow<Boolean> =
+        combine(syncManager.compartilharCasaAtivado, casaManager.casa) { compartilhar, casa ->
+            compartilhar && casa != null
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     /** Abas de contexto da Home (Pessoal | Empresa | Casa, conforme o modo). */
     val contextos: StateFlow<List<Perfil>> = perfilManager.contextosDisponiveis
 
@@ -85,29 +91,57 @@ class HomeViewModel @Inject constructor(
     val dataAtual: StateFlow<LocalDate> = fluxoDataAtual()
         .stateIn(viewModelScope, SharingStarted.Eagerly, LocalDate.now())
 
+    /** Mês sendo visualizado na Home (navegável pelo usuário). */
+    private val _mesSelecionado = MutableStateFlow(YearMonth.now())
+    val mesSelecionado: StateFlow<YearMonth> = _mesSelecionado.asStateFlow()
+
+    /** True quando o mês visualizado é o mês corrente (esconde o "voltar pra hoje"). */
+    val ehMesAtual: StateFlow<Boolean> =
+        combine(_mesSelecionado, dataAtual) { mes, hoje -> mes == YearMonth.from(hoje) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
     val saldoTotal: StateFlow<Long> = perfilDados
         .flatMapLatest { repository.observarSaldoTotal(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     val ganhosMes: StateFlow<Long> =
-        combine(perfilDados, dataAtual) { p, hoje -> p to hoje }
-            .flatMapLatest { (p, hoje) ->
-                val mes = PeriodoFiltro.MES.intervalo(hoje)!!
-                repository.observarGanhos(p, mes.inicio, mes.fim)
+        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
+            .flatMapLatest { (p, mes) ->
+                repository.observarGanhos(p, mes.atDay(1), mes.atEndOfMonth())
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     val gastosMes: StateFlow<Long> =
-        combine(perfilDados, dataAtual) { p, hoje -> p to hoje }
-            .flatMapLatest { (p, hoje) ->
-                val mes = PeriodoFiltro.MES.intervalo(hoje)!!
-                repository.observarGastos(p, mes.inicio, mes.fim)
+        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
+            .flatMapLatest { (p, mes) ->
+                repository.observarGastos(p, mes.atDay(1), mes.atEndOfMonth())
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
-    val ultimasTransacoes: StateFlow<List<Transacao>> = perfilDados
-        .flatMapLatest { repository.observarUltimasTransacoes(it, limite = 10) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** Transações do mês visualizado (todas, ordenadas da mais recente). */
+    val transacoesDoMes: StateFlow<List<Transacao>> =
+        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
+            .flatMapLatest { (p, mes) ->
+                repository.observarTransacoesPeriodo(p, mes.atDay(1), mes.atEndOfMonth())
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Vai para o mês anterior / próximo / um mês qualquer / de volta ao atual. */
+    fun mesAnterior() {
+        _mesSelecionado.value = _mesSelecionado.value.minusMonths(1)
+    }
+
+    fun mesProximo() {
+        _mesSelecionado.value = _mesSelecionado.value.plusMonths(1)
+    }
+
+    fun selecionarMes(mes: YearMonth) {
+        _mesSelecionado.value = mes
+    }
+
+    fun irParaMesAtual() {
+        _mesSelecionado.value = YearMonth.from(dataAtual.value)
+    }
 
     private val _atualizacaoDispensada = MutableStateFlow(false)
 
@@ -221,6 +255,20 @@ class HomeViewModel @Inject constructor(
             // Deleção é lógica: restaurar = limpar o tombstone
             runCatching { repository.restaurarTransacao(transacao) }
                 .onFailure { _mensagens.emit("Erro ao restaurar transação") }
+        }
+    }
+
+    /** Alterna esconder/reexibir da visão Membros (só faz sentido no pessoal). */
+    fun alternarOculto(transacao: Transacao) {
+        viewModelScope.launch {
+            runCatching { repository.ocultarTransacao(transacao, !transacao.oculto) }
+                .onSuccess {
+                    _mensagens.emit(
+                        if (!transacao.oculto) "Escondido da visão Membros"
+                        else "Voltou a aparecer na visão Membros"
+                    )
+                }
+                .onFailure { _mensagens.emit("Erro ao esconder transação") }
         }
     }
 
