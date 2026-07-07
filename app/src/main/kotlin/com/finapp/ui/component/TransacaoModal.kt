@@ -292,10 +292,14 @@ fun TransacaoModal(
                     isError = erroCategoria != null,
                     supportingText = { erroCategoria?.let { Text(it) } }
                 )
-                val filtradas = categorias.filter {
-                    textoCategoria.isBlank() ||
-                        it.nome.contains(textoCategoria, ignoreCase = true) ||
-                        categorias.any { c -> c.nome.equals(textoCategoria, true) }
+                // Texto vazio ou já casando exatamente com uma categoria (usuário
+                // acabou de selecionar): mostra a lista toda para permitir re-escolher.
+                // Enquanto digita algo parcial, filtra por "contém".
+                val exato = categorias.any { it.nome.equals(textoCategoria, ignoreCase = true) }
+                val filtradas = if (textoCategoria.isBlank() || exato) {
+                    categorias
+                } else {
+                    categorias.filter { it.nome.contains(textoCategoria, ignoreCase = true) }
                 }
                 ExposedDropdownMenu(
                     expanded = dropdownAberto && filtradas.isNotEmpty(),
