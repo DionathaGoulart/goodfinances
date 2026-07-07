@@ -2,6 +2,7 @@ package com.finapp.ui.screen
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -61,7 +64,7 @@ import com.finapp.data.db.entities.ehEmpresa
 import com.finapp.ui.component.LucroCard
 import com.finapp.ui.component.ResumoCard
 import com.finapp.ui.component.SaldoCard
-import com.finapp.ui.component.TransacaoItemDismissivel
+import com.finapp.ui.component.TransacaoLinha
 import com.finapp.ui.component.TransacaoModal
 import com.finapp.ui.component.TransferenciaDialog
 import com.finapp.ui.component.VisaoMembros
@@ -72,6 +75,8 @@ import com.finapp.viewmodel.HomeViewModel
 import com.finapp.viewmodel.ResumoMesAnterior
 import com.finapp.viewmodel.TransacaoViewModel
 import kotlinx.coroutines.launch
+import java.time.Month
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 
@@ -90,11 +95,16 @@ fun HomeScreen(
     val saldo by viewModel.saldoTotal.collectAsStateWithLifecycle()
     val ganhos by viewModel.ganhosMes.collectAsStateWithLifecycle()
     val gastos by viewModel.gastosMes.collectAsStateWithLifecycle()
-    val ultimas by viewModel.ultimasTransacoes.collectAsStateWithLifecycle()
+    val transacoesDoMes by viewModel.transacoesDoMes.collectAsStateWithLifecycle()
     val perfilDados by viewModel.perfilDados.collectAsStateWithLifecycle()
     val contextos by viewModel.contextos.collectAsStateWithLifecycle()
     val casaConectada by viewModel.casaConectada.collectAsStateWithLifecycle()
     val syncPessoalAtivo by viewModel.syncPessoalAtivo.collectAsStateWithLifecycle()
+    val compartilhando by viewModel.compartilhandoComCasa.collectAsStateWithLifecycle()
+    val mesSelecionado by viewModel.mesSelecionado.collectAsStateWithLifecycle()
+    val ehMesAtual by viewModel.ehMesAtual.collectAsStateWithLifecycle()
+    // "Esconder" só aparece nos baldes pessoais e com compartilhamento ligado
+    val podeEsconder = compartilhando && perfilDados in Perfil.BALDES_PESSOAIS
 
     val snackbarHostState = remember { SnackbarHostState() }
     val escopo = rememberCoroutineScope()
@@ -112,6 +122,8 @@ fun HomeScreen(
     val mostrandoMembros = perfilDados == Perfil.CASA && visaoMembros
     // Transferência entre contextos (Pessoal / Empresa / Casa)
     var transferenciaAberta by remember { mutableStateOf(false) }
+    // Seletor de mês/ano (navegação do histórico)
+    var mesPickerAberto by remember { mutableStateOf(false) }
 
     // Mensagens dos ViewModels (sucesso do modal, erros etc.) viram snackbar
     LaunchedEffect(Unit) {
@@ -270,6 +282,18 @@ fun HomeScreen(
                 return@Column
             }
 
+            // Navegação de mês: setas + toque no rótulo abre o seletor de mês/ano
+            BarraMes(
+                mes = mesSelecionado,
+                ehMesAtual = ehMesAtual,
+                onAnterior = viewModel::mesAnterior,
+                onProximo = viewModel::mesProximo,
+                onAbrirPicker = { mesPickerAberto = true },
+                onHoje = viewModel::irParaMesAtual
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Fechamento do mês anterior (primeiros dias do mês, dispensável)
             val resumoMes by viewModel.resumoMesAnterior.collectAsStateWithLifecycle()
             resumoMes?.let { resumo ->
@@ -314,14 +338,15 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "ÚLTIMAS TRANSAÇÕES",
+                text = if (ehMesAtual) "TRANSAÇÕES DO MÊS"
+                else "TRANSAÇÕES · ${rotuloMes(mesSelecionado).uppercase(Formatadores.LOCALE_BR)}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (ultimas.isEmpty()) {
+            if (transacoesDoMes.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -330,25 +355,33 @@ fun HomeScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Nenhuma transação ainda",
+                        text = if (ehMesAtual) "Nenhuma transação ainda"
+                        else "Nenhuma transação em ${rotuloMes(mesSelecionado)}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Toque em + para adicionar a primeira",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (ehMesAtual) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Toque em + para adicionar a primeira",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             } else {
                 LazyColumn(modifier = Modifier.weight(1f)) {
-                    items(ultimas, key = { it.id }) { transacao ->
+                    items(transacoesDoMes, key = { it.id }) { transacao ->
                         val podeEditar = viewModel.podeEditar(transacao)
-                        TransacaoItemDismissivel(
+                        TransacaoLinha(
                             transacao = transacao,
-                            permitirSwipe = podeEditar,
-                            onDeletar = { deletada ->
+                            podeEditar = podeEditar,
+                            podeEsconder = podeEsconder,
+                            onEditar = {
+                                transacaoEmEdicao = it
+                                modalAberto = true
+                            },
+                            onExcluir = { deletada ->
                                 viewModel.deletarTransacao(deletada)
                                 escopo.launch {
                                     val resultado = snackbarHostState.showSnackbar(
@@ -361,16 +394,12 @@ fun HomeScreen(
                                     }
                                 }
                             },
-                            onClick = {
-                                if (podeEditar) {
-                                    transacaoEmEdicao = transacao
-                                    modalAberto = true
-                                } else {
-                                    escopo.launch {
-                                        snackbarHostState.showSnackbar(
-                                            "Só quem lançou pode editar esta transação"
-                                        )
-                                    }
+                            onAlternarOculto = viewModel::alternarOculto,
+                            onBloqueado = {
+                                escopo.launch {
+                                    snackbarHostState.showSnackbar(
+                                        "Só quem lançou pode editar esta transação"
+                                    )
                                 }
                             }
                         )
@@ -425,6 +454,17 @@ fun HomeScreen(
         )
     }
 
+    if (mesPickerAberto) {
+        SeletorMesAno(
+            mesAtual = mesSelecionado,
+            onSelecionar = {
+                viewModel.selecionarMes(it)
+                mesPickerAberto = false
+            },
+            onFechar = { mesPickerAberto = false }
+        )
+    }
+
     if (modalAberto) {
         TransacaoModal(
             onFechar = { modalAberto = false },
@@ -445,6 +485,141 @@ fun HomeScreen(
             viewModel = transacaoViewModel
         )
     }
+}
+
+/** Rótulo "Julho 2026" a partir de um YearMonth (pt-BR). */
+private fun rotuloMes(mes: YearMonth): String {
+    val nome = mes.month
+        .getDisplayName(TextStyle.FULL, Formatadores.LOCALE_BR)
+        .replaceFirstChar { it.uppercase(Formatadores.LOCALE_BR) }
+    return "$nome ${mes.year}"
+}
+
+/** Navegação do mês: ‹ Mês Ano › (toque no rótulo abre o seletor de mês/ano). */
+@Composable
+private fun BarraMes(
+    mes: YearMonth,
+    ehMesAtual: Boolean,
+    onAnterior: () -> Unit,
+    onProximo: () -> Unit,
+    onAbrirPicker: () -> Unit,
+    onHoje: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(onClick = onAnterior) {
+            Icon(
+                imageVector = Icons.Filled.ChevronLeft,
+                contentDescription = "Mês anterior"
+            )
+        }
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onAbrirPicker),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = rotuloMes(mes),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+        IconButton(onClick = onProximo) {
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = "Próximo mês"
+            )
+        }
+    }
+    if (!ehMesAtual) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            TextButton(onClick = onHoje) {
+                Text("Voltar para o mês atual")
+            }
+        }
+    }
+}
+
+/** Seletor de qualquer mês/ano: setas de ano + grade de 12 meses. */
+@Composable
+private fun SeletorMesAno(
+    mesAtual: YearMonth,
+    onSelecionar: (YearMonth) -> Unit,
+    onFechar: () -> Unit
+) {
+    var ano by remember { mutableStateOf(mesAtual.year) }
+    AlertDialog(
+        onDismissRequest = onFechar,
+        title = { Text("Escolher mês") },
+        text = {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { ano -= 1 }) {
+                        Icon(
+                            imageVector = Icons.Filled.ChevronLeft,
+                            contentDescription = "Ano anterior"
+                        )
+                    }
+                    Text(
+                        text = ano.toString(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    IconButton(onClick = { ano += 1 }) {
+                        Icon(
+                            imageVector = Icons.Filled.ChevronRight,
+                            contentDescription = "Próximo ano"
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                for (linha in 0..3) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (coluna in 0..2) {
+                            val numeroMes = linha * 3 + coluna + 1
+                            val ym = YearMonth.of(ano, numeroMes)
+                            FilterChip(
+                                selected = ym == mesAtual,
+                                onClick = { onSelecionar(ym) },
+                                label = {
+                                    Text(
+                                        Month.of(numeroMes)
+                                            .getDisplayName(
+                                                TextStyle.SHORT,
+                                                Formatadores.LOCALE_BR
+                                            )
+                                            .replaceFirstChar {
+                                                it.uppercase(Formatadores.LOCALE_BR)
+                                            }
+                                    )
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onFechar) { Text("Fechar") }
+        }
+    )
 }
 
 /** Fechamento do mês anterior: ganhos, gastos e saldo, com botão de dispensar. */
