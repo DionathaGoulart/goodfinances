@@ -15,7 +15,6 @@ import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoEmpresa
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.TransacaoRecorrente
-import com.finapp.data.db.entities.ehEmpresa
 import android.app.PendingIntent
 import com.finapp.data.io.BackupManager
 import com.finapp.data.io.DadosImportados
@@ -39,6 +38,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -157,14 +157,33 @@ class ConfigViewModel @Inject constructor(
         .flatMapLatest { repository.observarCartoes(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** True quando o contexto de dados atual é de empresa (habilita o DAS mensal). */
-    val contextoEhEmpresa: StateFlow<Boolean> = perfilDados
-        .map { it.ehEmpresa }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    /**
+     * Balde de empresa do MODO atual (MEI → aba Negócio, CNPJ → CNPJ),
+     * independente da aba em que o usuário está. É onde o DAS mensal vive —
+     * assim o campo aparece e grava certo mesmo com a Config aberta na aba
+     * Pessoal. Null nos modos sem empresa.
+     */
+    val perfilEmpresa: StateFlow<Perfil?> = perfilManager.perfilAtivo
+        .map { modo ->
+            when (modo) {
+                Perfil.MEI -> Perfil.MEI_NEGOCIO
+                Perfil.CNPJ -> Perfil.CNPJ
+                else -> null
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Valor do DAS mensal configurado (0 = não definido), em centavos. */
-    val dasMensal: StateFlow<Long> = recorrentes
-        .map { lista -> lista.firstOrNull { it.descricao == DESCRICAO_DAS }?.valor ?: 0L }
+    val dasMensal: StateFlow<Long> = perfilEmpresa
+        .flatMapLatest { empresa ->
+            if (empresa == null) {
+                flowOf(0L)
+            } else {
+                repository.observarRecorrentesAtivas(empresa).map { lista ->
+                    lista.firstOrNull { it.descricao == DESCRICAO_DAS }?.valor ?: 0L
+                }
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     fun mudarPerfil(novo: Perfil) {
@@ -258,15 +277,15 @@ class ConfigViewModel @Inject constructor(
     /**
      * [valorCentavos] em centavos. Materializa o DAS como despesa mensal
      * recorrente da empresa (categoria "Impostos", todo dia 20). Valor 0
-     * encerra a recorrência. Só vale nos contextos de empresa.
+     * encerra a recorrência. Grava sempre no balde de empresa do modo
+     * atual, mesmo com a Config aberta na aba Pessoal.
      */
     fun atualizarDas(valorCentavos: Long) {
         if (valorCentavos < 0L) {
             emitir("Valor inválido")
             return
         }
-        val perfil = perfilDados.value
-        if (!perfil.ehEmpresa) return
+        val perfil = perfilEmpresa.value ?: return
         viewModelScope.launch {
             runCatching {
                 if (valorCentavos > 0L) {

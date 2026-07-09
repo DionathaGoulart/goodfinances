@@ -28,6 +28,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Restore
@@ -37,6 +39,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -49,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,7 +84,11 @@ import java.time.LocalDate
 import java.util.Locale
 import kotlin.math.roundToLong
 
-/** Configurações: perfil, casa compartilhada, finanças, dados, aparência, sobre. */
+/**
+ * Configurações organizadas em seções recolhíveis:
+ * Modo de uso · Finanças · Casa e sincronização · Notificações ·
+ * Dados e backup · Segurança · Aparência · Sobre.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ConfigScreen(
@@ -98,7 +106,7 @@ fun ConfigScreen(
     val corEmpresa by viewModel.corEmpresa.collectAsStateWithLifecycle()
     val contexto = LocalContext.current
 
-    val contextoEhEmpresa by viewModel.contextoEhEmpresa.collectAsStateWithLifecycle()
+    val perfilEmpresa by viewModel.perfilEmpresa.collectAsStateWithLifecycle()
     val dasMensal by viewModel.dasMensal.collectAsStateWithLifecycle()
     val cartoes by viewModel.cartoes.collectAsStateWithLifecycle()
 
@@ -135,276 +143,466 @@ fun ConfigScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // ---------- Modo de uso ----------
-        Text(
-            text = "MODO DE USO",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Perfil.PRINCIPAIS.forEach { opcao ->
-            val selecionado = perfil == opcao
-            Card(
-                onClick = { if (!selecionado) viewModel.mudarPerfil(opcao) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                border = if (selecionado) {
-                    BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-                } else {
-                    null
-                }
-            ) {
-                Row(
+        SecaoConfig(
+            titulo = "Modo de uso",
+            subtitulo = perfil.rotulo
+        ) {
+            Perfil.PRINCIPAIS.forEach { opcao ->
+                val selecionado = perfil == opcao
+                Card(
+                    onClick = { if (!selecionado) viewModel.mudarPerfil(opcao) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = opcao.rotulo,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = opcao.descricao,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        .padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    border = if (selecionado) {
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                    } else {
+                        null
                     }
-                    if (selecionado) {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = "Perfil ativo",
-                            tint = MaterialTheme.colorScheme.primary
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = opcao.rotulo,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = opcao.descricao,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (selecionado) {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = "Perfil ativo",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Ao trocar de modo, os dados dos demais continuam salvos.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // Tipo da empresa (só nos modos que têm empresa)
+            if (perfil == Perfil.MEI || perfil == Perfil.CNPJ) {
+                val tipoEmpresa by viewModel.tipoEmpresa.collectAsStateWithLifecycle()
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Minha empresa é:",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TipoEmpresa.entries.forEach { tipo ->
+                        FilterChip(
+                            selected = tipoEmpresa == tipo,
+                            onClick = { viewModel.definirTipoEmpresa(tipo) },
+                            label = { Text(tipo.rotulo) },
+                            modifier = Modifier.padding(start = 8.dp)
                         )
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Ao trocar de modo, os dados dos demais continuam salvos.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        // ---------- Finanças ----------
+        SecaoConfig(
+            titulo = "Finanças",
+            subtitulo = if (perfilEmpresa != null) {
+                "Salário, DAS mensal, cartões, categorias e recorrências"
+            } else {
+                "Salário, cartões, categorias e recorrências"
+            }
+        ) {
+            // Salário fixo
+            LinhaConfig(
+                titulo = "Salário Fixo",
+                subtitulo = "${Formatadores.moeda(configuracao.salarioFixo)} · " +
+                    "recebe dia ${configuracao.diaRecebimento}",
+                acao = "Editar",
+                onAcao = { dialogSalarioAberto = true }
+            )
 
-        // Tipo da empresa (só nos modos que têm empresa)
-        if (perfil == Perfil.MEI || perfil == Perfil.CNPJ) {
-            val tipoEmpresa by viewModel.tipoEmpresa.collectAsStateWithLifecycle()
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // DAS mensal (modos MEI/CNPJ): despesa fixa da empresa todo dia 20.
+            // Visível em qualquer aba — grava no balde da empresa.
+            if (perfilEmpresa != null) {
+                DivisorConfig()
+                LinhaConfig(
+                    titulo = "DAS mensal",
+                    subtitulo = if (dasMensal > 0L) {
+                        "${Formatadores.moeda(dasMensal)} · despesa da empresa todo dia 20"
+                    } else {
+                        "Lança o imposto do MEI como despesa da empresa todo mês"
+                    },
+                    acao = "Editar",
+                    onAcao = { dialogDasAberto = true }
+                )
+            }
+
+            DivisorConfig()
+
+            // Cartões de crédito
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = "Minha empresa é:",
+                    text = "Cartões de crédito",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f)
                 )
-                TipoEmpresa.entries.forEach { tipo ->
-                    FilterChip(
-                        selected = tipoEmpresa == tipo,
-                        onClick = { viewModel.definirTipoEmpresa(tipo) },
-                        label = { Text(tipo.rotulo) },
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
+                TextButton(onClick = {
+                    cartaoEmEdicao = null
+                    dialogCartaoAberto = true
+                }) {
+                    Text("+ Novo")
                 }
             }
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // ---------- Casa compartilhada ----------
-        Text(
-            text = "CASA COMPARTILHADA",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                val usuarioAtual = usuario
-                val casaAtual = casa
-
-                when {
-                    // Não logado
-                    usuarioAtual == null -> {
-                        Text(
-                            text = "Divida uma carteira com quem mora com você. " +
-                                "Entre com sua conta Google para criar ou entrar numa Casa.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = { casaViewModel.entrarComGoogle(contexto) },
-                            enabled = !casaOcupado,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(if (casaOcupado) "Conectando..." else "Entrar com Google")
-                        }
-                    }
-
-                    // Logado, sem casa
-                    casaAtual == null -> {
-                        Text(
-                            text = "Conectado como ${usuarioAtual.email}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = casaViewModel::criarCasa,
-                            enabled = !casaOcupado,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Criar uma Casa")
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        var codigoDigitado by remember { mutableStateOf("") }
-                        OutlinedTextField(
-                            value = codigoDigitado,
-                            onValueChange = {
-                                codigoDigitado = it.uppercase(Locale.ROOT).take(6)
-                            },
-                            label = { Text("Código de convite") },
-                            placeholder = { Text("Ex: A3F7KP") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedButton(
-                            onClick = { casaViewModel.entrarNaCasa(codigoDigitado) },
-                            enabled = !casaOcupado,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Entrar com código")
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        TextButton(onClick = casaViewModel::sairDaConta) {
-                            Text("Sair da conta Google")
-                        }
-                    }
-
-                    // Logado e com casa
-                    else -> {
-                        Text(
-                            text = "Código de convite",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = casaAtual.codigoConvite,
-                            style = MaterialTheme.typography.displayLarge,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "${casaAtual.membros.size} membro(s) · " +
-                                "conectado como ${usuarioAtual.email}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = {
-                                val intent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(
-                                        Intent.EXTRA_TEXT,
-                                        "Entre na minha Casa no GoodFinances com o código: " +
-                                            casaAtual.codigoConvite
-                                    )
-                                }
-                                contexto.startActivity(
-                                    Intent.createChooser(intent, "Compartilhar código")
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Compartilhar código")
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "A Casa aparece como aba na tela inicial.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Visão Membros: cada um decide expor o próprio pessoal
-                        val compartilhar by viewModel.compartilharCasaAtivado
-                            .collectAsStateWithLifecycle()
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Compartilhar meus lançamentos pessoais",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Os membros veem seus ganhos/gastos pessoais " +
-                                        "na visão Membros. A empresa fica de fora.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+            if (cartoes.isEmpty()) {
+                Text(
+                    text = "Nenhum cartão. Cadastre para poder lançar compras no crédito " +
+                        "(o gasto cai no mês da fatura).",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                cartoes.forEach { cartao ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                cartaoEmEdicao = cartao
+                                dialogCartaoAberto = true
                             }
-                            Switch(
-                                checked = compartilhar,
-                                onCheckedChange = viewModel::alternarCompartilharCasa
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    runCatching { Color(cartao.cor.toColorInt()) }
+                                        .getOrDefault(Color.Gray)
+                                )
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = cartao.nome,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "fecha dia ${cartao.diaFechamento} · " +
+                                    "vence dia ${cartao.diaVencimento}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row {
-                            TextButton(
-                                onClick = casaViewModel::sairDaCasa,
-                                enabled = !casaOcupado
-                            ) {
-                                Text("Sair da Casa")
-                            }
-                            TextButton(onClick = casaViewModel::sairDaConta) {
-                                Text("Sair da conta")
-                            }
+                        TextButton(onClick = { viewModel.removerCartao(cartao) }) {
+                            Text("Remover")
                         }
                     }
                 }
             }
-        }
 
-        // ---------- Sincronização entre aparelhos (precisa estar logado) ----------
-        if (usuario != null) {
-            Spacer(modifier = Modifier.height(32.dp))
-            Text(
-                text = "SINCRONIZAÇÃO",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            DivisorConfig()
 
-            val syncPessoalAtivado by viewModel.syncPessoalAtivado.collectAsStateWithLifecycle()
-            Card(
+            // Categorias
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Text(
+                    text = "Categorias",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { dialogCategoriaAberto = true }) {
+                    Text("+ Nova")
+                }
+            }
+
+            categorias.forEach { categoria ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .clickable { categoriaEmEdicao = categoria }
+                        .padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .clip(CircleShape)
+                            .background(
+                                runCatching { Color(categoria.cor.toColorInt()) }
+                                    .getOrDefault(Color.Gray)
+                            )
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = categoria.nome,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (categoria.arquivada) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                        Text(
+                            text = (if (categoria.tipo == TipoTransacao.GANHO) {
+                                "Ganho"
+                            } else {
+                                "Gasto"
+                            }) + if (categoria.arquivada) " · arquivada" else "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            if (categoria.arquivada) viewModel.reativarCategoria(categoria)
+                            else viewModel.arquivarCategoria(categoria)
+                        }
+                    ) {
+                        Text(if (categoria.arquivada) "Reativar" else "Arquivar")
+                    }
+                }
+            }
+
+            DivisorConfig()
+
+            // Recorrentes
+            val recorrentes by viewModel.recorrentes.collectAsStateWithLifecycle()
+            Text(
+                text = "Recorrentes",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (recorrentes.isEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Nenhuma recorrência ativa. Marque \"Repetir todo mês\" " +
+                        "ao criar uma transação, ou configure o salário fixo.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                recorrentes.forEach { recorrente ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = recorrente.descricao.ifBlank { recorrente.categoria },
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "${Formatadores.moeda(recorrente.valor)} · " +
+                                    "próx. ${Formatadores.dataCurta(recorrente.proximoLancamento)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(onClick = { viewModel.encerrarRecorrente(recorrente) }) {
+                            Text("Encerrar")
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------- Casa compartilhada e sincronização ----------
+        SecaoConfig(
+            titulo = "Casa e sincronização",
+            subtitulo = when {
+                casa != null -> "Na Casa ${casa?.codigoConvite.orEmpty()} · " +
+                    (usuario?.email ?: "")
+                usuario != null -> "Conectado como ${usuario?.email.orEmpty()}"
+                else -> "Carteira compartilhada e sync entre aparelhos"
+            }
+        ) {
+            val usuarioAtual = usuario
+            val casaAtual = casa
+
+            when {
+                // Não logado
+                usuarioAtual == null -> {
+                    Text(
+                        text = "Divida uma carteira com quem mora com você. " +
+                            "Entre com sua conta Google para criar ou entrar numa Casa.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { casaViewModel.entrarComGoogle(contexto) },
+                        enabled = !casaOcupado,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (casaOcupado) "Conectando..." else "Entrar com Google")
+                    }
+                }
+
+                // Logado, sem casa
+                casaAtual == null -> {
+                    Text(
+                        text = "Conectado como ${usuarioAtual.email}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = casaViewModel::criarCasa,
+                        enabled = !casaOcupado,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Criar uma Casa")
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    var codigoDigitado by remember { mutableStateOf("") }
+                    OutlinedTextField(
+                        value = codigoDigitado,
+                        onValueChange = {
+                            codigoDigitado = it.uppercase(Locale.ROOT).take(6)
+                        },
+                        label = { Text("Código de convite") },
+                        placeholder = { Text("Ex: A3F7KP") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { casaViewModel.entrarNaCasa(codigoDigitado) },
+                        enabled = !casaOcupado,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Entrar com código")
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    TextButton(onClick = casaViewModel::sairDaConta) {
+                        Text("Sair da conta Google")
+                    }
+                }
+
+                // Logado e com casa
+                else -> {
+                    Text(
+                        text = "Código de convite",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = casaAtual.codigoConvite,
+                        style = MaterialTheme.typography.displayLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${casaAtual.membros.size} membro(s) · " +
+                            "conectado como ${usuarioAtual.email}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(
+                                    Intent.EXTRA_TEXT,
+                                    "Entre na minha Casa no GoodFinances com o código: " +
+                                        casaAtual.codigoConvite
+                                )
+                            }
+                            contexto.startActivity(
+                                Intent.createChooser(intent, "Compartilhar código")
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Compartilhar código")
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "A Casa aparece como aba na tela inicial.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Visão Membros: cada um decide expor o próprio pessoal
+                    val compartilhar by viewModel.compartilharCasaAtivado
+                        .collectAsStateWithLifecycle()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Compartilhar meus lançamentos pessoais",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Os membros veem seus ganhos/gastos pessoais " +
+                                    "na visão Membros. A empresa fica de fora.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = compartilhar,
+                            onCheckedChange = viewModel::alternarCompartilharCasa
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row {
+                        TextButton(
+                            onClick = casaViewModel::sairDaCasa,
+                            enabled = !casaOcupado
+                        ) {
+                            Text("Sair da Casa")
+                        }
+                        TextButton(onClick = casaViewModel::sairDaConta) {
+                            Text("Sair da conta")
+                        }
+                    }
+                }
+            }
+
+            // Sincronização entre aparelhos (precisa estar logado)
+            if (usuario != null) {
+                DivisorConfig()
+                val syncPessoalAtivado by viewModel.syncPessoalAtivado
+                    .collectAsStateWithLifecycle()
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Sincronizar entre aparelhos",
@@ -426,431 +624,14 @@ fun ConfigScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // ---------- Finanças ----------
-        Text(
-            text = "FINANÇAS",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Salário Fixo",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "${Formatadores.moeda(configuracao.salarioFixo)} · " +
-                            "recebe dia ${configuracao.diaRecebimento}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                TextButton(onClick = { dialogSalarioAberto = true }) {
-                    Text("Editar")
-                }
-            }
-        }
-
-        // DAS mensal (só nos contextos de empresa): despesa fixa todo dia 20
-        if (contextoEhEmpresa) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "DAS mensal",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (dasMensal > 0L) {
-                                "${Formatadores.moeda(dasMensal)} · despesa todo dia 20"
-                            } else {
-                                "Lança o imposto do MEI como despesa todo mês"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    TextButton(onClick = { dialogDasAberto = true }) {
-                        Text("Editar")
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Cartões de crédito
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Cartões de crédito",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f)
-            )
-            TextButton(onClick = {
-                cartaoEmEdicao = null
-                dialogCartaoAberto = true
-            }) {
-                Text("+ Novo")
-            }
-        }
-        if (cartoes.isEmpty()) {
-            Text(
-                text = "Nenhum cartão. Cadastre para poder lançar compras no crédito " +
-                    "(o gasto cai no mês da fatura).",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else {
-            cartoes.forEach { cartao ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            cartaoEmEdicao = cartao
-                            dialogCartaoAberto = true
-                        }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(
-                                runCatching { Color(cartao.cor.toColorInt()) }
-                                    .getOrDefault(Color.Gray)
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = cartao.nome,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "fecha dia ${cartao.diaFechamento} · " +
-                                "vence dia ${cartao.diaVencimento}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    TextButton(onClick = { viewModel.removerCartao(cartao) }) {
-                        Text("Remover")
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Categorias",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f)
-            )
-            TextButton(onClick = { dialogCategoriaAberto = true }) {
-                Text("+ Nova")
-            }
-        }
-
-        categorias.forEach { categoria ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { categoriaEmEdicao = categoria }
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .clip(CircleShape)
-                        .background(
-                            runCatching { Color(categoria.cor.toColorInt()) }
-                                .getOrDefault(Color.Gray)
-                        )
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = categoria.nome,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (categoria.arquivada) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        }
-                    )
-                    Text(
-                        text = (if (categoria.tipo == TipoTransacao.GANHO) "Ganho" else "Gasto") +
-                            if (categoria.arquivada) " · arquivada" else "",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                TextButton(
-                    onClick = {
-                        if (categoria.arquivada) viewModel.reativarCategoria(categoria)
-                        else viewModel.arquivarCategoria(categoria)
-                    }
-                ) {
-                    Text(if (categoria.arquivada) "Reativar" else "Arquivar")
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // ---------- Recorrentes ----------
-        val recorrentes by viewModel.recorrentes.collectAsStateWithLifecycle()
-        Text(
-            text = "Recorrentes",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        if (recorrentes.isEmpty()) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Nenhuma recorrência ativa. Marque \"Repetir todo mês\" " +
-                    "ao criar uma transação, ou configure o salário fixo.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else {
-            recorrentes.forEach { recorrente ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = recorrente.descricao.ifBlank { recorrente.categoria },
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "${Formatadores.moeda(recorrente.valor)} · " +
-                                "próx. ${Formatadores.dataCurta(recorrente.proximoLancamento)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    TextButton(onClick = { viewModel.encerrarRecorrente(recorrente) }) {
-                        Text("Encerrar")
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // ---------- Dados (export / import / backup) ----------
-        Text(
-            text = "DADOS",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        val hoje = LocalDate.now()
-        val exportCsv = rememberLauncherForActivityResult(
-            ActivityResultContracts.CreateDocument("text/csv")
-        ) { viewModel.exportarCsv(it) }
-        val exportJson = rememberLauncherForActivityResult(
-            ActivityResultContracts.CreateDocument("application/json")
-        ) { viewModel.exportarJson(it) }
-        val exportPdf = rememberLauncherForActivityResult(
-            ActivityResultContracts.CreateDocument("application/pdf")
-        ) { viewModel.exportarPdf(it) }
-        val importar = rememberLauncherForActivityResult(
-            ActivityResultContracts.OpenDocument()
-        ) { viewModel.prepararImportacao(it) }
-        val exportZip = rememberLauncherForActivityResult(
-            ActivityResultContracts.CreateDocument("application/zip")
-        ) { viewModel.exportarZip(it) }
-
-        ItemDados(
-            icone = Icons.Filled.FileDownload,
-            titulo = "Exportar para CSV",
-            onClick = { exportCsv.launch("GoodFinances_$hoje.csv") }
-        )
-        ItemDados(
-            icone = Icons.Filled.FileDownload,
-            titulo = "Exportar para JSON",
-            onClick = { exportJson.launch("GoodFinances_$hoje.json") }
-        )
-        ItemDados(
-            icone = Icons.Filled.FileDownload,
-            titulo = "Exportar Relatório PDF",
-            onClick = { exportPdf.launch("GoodFinances_Relatorio_$hoje.pdf") }
-        )
-        ItemDados(
-            icone = Icons.Filled.FileUpload,
-            titulo = "Importar Dados (CSV ou JSON)",
-            onClick = { importar.launch(arrayOf("*/*")) }
-        )
-        ItemDados(
-            icone = Icons.AutoMirrored.Filled.ReceiptLong,
-            titulo = "Exportar Notas Fiscais (ZIP)",
-            subtitulo = "Tudo organizado por ano e mês — pronto para o imposto",
-            onClick = { exportZip.launch("GoodFinances_Notas_$hoje.zip") }
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Backup automático
-        val backupAtivado by viewModel.backupAtivado.collectAsStateWithLifecycle()
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Backup Automático",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "JSON semanal · local e na nuvem (quando conectado)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = backupAtivado,
-                    onCheckedChange = viewModel::alternarBackupAutomatico
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        ItemDados(
-            icone = Icons.Filled.Restore,
-            titulo = "Restaurar do Backup",
-            onClick = viewModel::restaurarBackup
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Backup das notas fiscais no Google Drive (conta logada)
-        val backupDriveAtivado by viewModel.backupDriveAtivado.collectAsStateWithLifecycle()
-        val autorizarDrive = rememberLauncherForActivityResult(
-            ActivityResultContracts.StartIntentSenderForResult()
-        ) { resultado ->
-            if (resultado.resultCode == android.app.Activity.RESULT_OK) {
-                viewModel.concluirAtivacaoDrive()
-            }
-        }
-        LaunchedEffect(Unit) {
-            viewModel.pedidoAutorizacaoDrive.collect { pendente ->
-                autorizarDrive.launch(
-                    IntentSenderRequest.Builder(pendente.intentSender).build()
-                )
-            }
-        }
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Notas fiscais no Google Drive",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Guarda os arquivos das notas na sua conta Google (grátis)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = backupDriveAtivado,
-                    onCheckedChange = viewModel::alternarBackupDrive
-                )
-            }
-        }
-        if (backupDriveAtivado) {
-            Spacer(modifier = Modifier.height(8.dp))
-            ItemDados(
-                icone = Icons.Filled.Restore,
-                titulo = "Restaurar Notas do Drive",
-                subtitulo = "Baixa as notas que não estão neste aparelho",
-                onClick = viewModel::restaurarNotasDrive
-            )
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
         // ---------- Notificações ----------
-        Text(
-            text = "NOTIFICAÇÕES",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        val notificacoesAtivadas by viewModel.notificacoesAtivadas.collectAsStateWithLifecycle()
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        SecaoConfig(
+            titulo = "Notificações",
+            subtitulo = "Avisos de orçamento, DAS e recorrências"
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            val notificacoesAtivadas by viewModel.notificacoesAtivadas
+                .collectAsStateWithLifecycle()
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Avisos financeiros",
@@ -871,27 +652,137 @@ fun ConfigScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        // ---------- Dados e backup ----------
+        SecaoConfig(
+            titulo = "Dados e backup",
+            subtitulo = "Exportar, importar e backups automáticos"
+        ) {
+            val hoje = LocalDate.now()
+            val exportCsv = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("text/csv")
+            ) { viewModel.exportarCsv(it) }
+            val exportJson = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/json")
+            ) { viewModel.exportarJson(it) }
+            val exportPdf = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/pdf")
+            ) { viewModel.exportarPdf(it) }
+            val importar = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { viewModel.prepararImportacao(it) }
+            val exportZip = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/zip")
+            ) { viewModel.exportarZip(it) }
+
+            ItemDados(
+                icone = Icons.Filled.FileDownload,
+                titulo = "Exportar para CSV",
+                onClick = { exportCsv.launch("GoodFinances_$hoje.csv") }
+            )
+            ItemDados(
+                icone = Icons.Filled.FileDownload,
+                titulo = "Exportar para JSON",
+                onClick = { exportJson.launch("GoodFinances_$hoje.json") }
+            )
+            ItemDados(
+                icone = Icons.Filled.FileDownload,
+                titulo = "Exportar Relatório PDF",
+                onClick = { exportPdf.launch("GoodFinances_Relatorio_$hoje.pdf") }
+            )
+            ItemDados(
+                icone = Icons.Filled.FileUpload,
+                titulo = "Importar Dados (CSV ou JSON)",
+                onClick = { importar.launch(arrayOf("*/*")) }
+            )
+            ItemDados(
+                icone = Icons.AutoMirrored.Filled.ReceiptLong,
+                titulo = "Exportar Notas Fiscais (ZIP)",
+                subtitulo = "Tudo organizado por ano e mês — pronto para o imposto",
+                onClick = { exportZip.launch("GoodFinances_Notas_$hoje.zip") }
+            )
+
+            DivisorConfig()
+
+            // Backup automático
+            val backupAtivado by viewModel.backupAtivado.collectAsStateWithLifecycle()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Backup Automático",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "JSON semanal · local e na nuvem (quando conectado)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = backupAtivado,
+                    onCheckedChange = viewModel::alternarBackupAutomatico
+                )
+            }
+            ItemDados(
+                icone = Icons.Filled.Restore,
+                titulo = "Restaurar do Backup",
+                onClick = viewModel::restaurarBackup
+            )
+
+            DivisorConfig()
+
+            // Backup das notas fiscais no Google Drive (conta logada)
+            val backupDriveAtivado by viewModel.backupDriveAtivado
+                .collectAsStateWithLifecycle()
+            val autorizarDrive = rememberLauncherForActivityResult(
+                ActivityResultContracts.StartIntentSenderForResult()
+            ) { resultado ->
+                if (resultado.resultCode == android.app.Activity.RESULT_OK) {
+                    viewModel.concluirAtivacaoDrive()
+                }
+            }
+            LaunchedEffect(Unit) {
+                viewModel.pedidoAutorizacaoDrive.collect { pendente ->
+                    autorizarDrive.launch(
+                        IntentSenderRequest.Builder(pendente.intentSender).build()
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Notas fiscais no Google Drive",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Guarda os arquivos das notas na sua conta Google (grátis)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = backupDriveAtivado,
+                    onCheckedChange = viewModel::alternarBackupDrive
+                )
+            }
+            if (backupDriveAtivado) {
+                ItemDados(
+                    icone = Icons.Filled.Restore,
+                    titulo = "Restaurar Notas do Drive",
+                    subtitulo = "Baixa as notas que não estão neste aparelho",
+                    onClick = viewModel::restaurarNotasDrive
+                )
+            }
+        }
 
         // ---------- Segurança ----------
-        Text(
-            text = "SEGURANÇA",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        val bloqueioAtivado by viewModel.bloqueioAtivado.collectAsStateWithLifecycle()
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        SecaoConfig(
+            titulo = "Segurança",
+            subtitulo = "Bloqueio por biometria"
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            val bloqueioAtivado by viewModel.bloqueioAtivado.collectAsStateWithLifecycle()
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Bloqueio por biometria",
@@ -925,82 +816,75 @@ fun ConfigScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
-
         // ---------- Aparência ----------
-        Text(
-            text = "APARÊNCIA",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+        SecaoConfig(
+            titulo = "Aparência",
+            subtitulo = "Tamanho da fonte e cores do tema"
+        ) {
+            Text(
+                text = "Tema: Escuro (padrão do app)",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
 
-        Text(
-            text = "Tema: Escuro (padrão do app)",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "Tamanho da Fonte",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EscalaFonte.entries.forEach { escala ->
-                FilterChip(
-                    selected = escalaFonte == escala,
-                    onClick = { viewModel.definirEscalaFonte(escala) },
-                    label = { Text(escala.rotulo) }
-                )
+            Text(
+                text = "Tamanho da Fonte",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                EscalaFonte.entries.forEach { escala ->
+                    FilterChip(
+                        selected = escalaFonte == escala,
+                        onClick = { viewModel.definirEscalaFonte(escala) },
+                        label = { Text(escala.rotulo) }
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            SeletorCorTema(
+                titulo = "Cor do tema pessoal",
+                corSelecionada = corPessoal,
+                onSelecionar = viewModel::definirCorPessoal
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            SeletorCorTema(
+                titulo = "Cor do tema empresa",
+                corSelecionada = corEmpresa,
+                onSelecionar = viewModel::definirCorEmpresa
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "O app troca de cor sozinho ao alternar entre pessoal e empresa.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        SeletorCorTema(
-            titulo = "Cor do tema pessoal",
-            corSelecionada = corPessoal,
-            onSelecionar = viewModel::definirCorPessoal
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        SeletorCorTema(
-            titulo = "Cor do tema empresa",
-            corSelecionada = corEmpresa,
-            onSelecionar = viewModel::definirCorEmpresa
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "O app troca de cor sozinho ao alternar entre pessoal e empresa.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
         // ---------- Sobre ----------
-        Text(
-            text = "SOBRE",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "GoodFinances — Versão ${BuildConfig.VERSION_NAME}",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Text(
-            text = "Contato: dgoulart.work@gmail.com",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        SecaoConfig(
+            titulo = "Sobre",
+            subtitulo = "Versão ${BuildConfig.VERSION_NAME}"
+        ) {
+            Text(
+                text = "GoodFinances — Versão ${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Contato: dgoulart.work@gmail.com",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // ---------- Zona de perigo ----------
         Button(
@@ -1411,6 +1295,103 @@ fun ConfigScreen(
     }
 }
 
+/**
+ * Seção recolhível das Configurações: cabeçalho com título + resumo e
+ * conteúdo que abre/fecha no toque. Começa fechada — a tela vira um índice.
+ */
+@Composable
+private fun SecaoConfig(
+    titulo: String,
+    subtitulo: String,
+    conteudo: @Composable () -> Unit
+) {
+    var expandida by rememberSaveable(titulo) { mutableStateOf(false) }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expandida = !expandida }
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = titulo,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = subtitulo,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+                Icon(
+                    imageVector = if (expandida) {
+                        Icons.Filled.ExpandLess
+                    } else {
+                        Icons.Filled.ExpandMore
+                    },
+                    contentDescription = if (expandida) "Recolher" else "Expandir",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (expandida) {
+                Column(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                ) {
+                    conteudo()
+                }
+            }
+        }
+    }
+    Spacer(modifier = Modifier.height(12.dp))
+}
+
+/** Separador entre blocos dentro de uma seção. */
+@Composable
+private fun DivisorConfig() {
+    HorizontalDivider(
+        modifier = Modifier.padding(vertical = 12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    )
+}
+
+/** Linha "título + subtítulo" com um botão de ação à direita. */
+@Composable
+private fun LinhaConfig(
+    titulo: String,
+    subtitulo: String,
+    acao: String,
+    onAcao: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = titulo,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitulo,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        TextButton(onClick = onAcao) {
+            Text(acao)
+        }
+    }
+}
+
 /** Converte reais ("3.500,50" BR ou "3500.50") para centavos; vazio = 0, inválido = -1. */
 private fun reaisParaCentavos(texto: String): Long {
     val limpo = texto.trim()
@@ -1487,6 +1468,7 @@ private fun SeletorCores(
     }
 }
 
+/** Item clicável de ação da seção Dados (exportar, importar, restaurar). */
 @Composable
 private fun ItemDados(
     icone: ImageVector,
@@ -1494,39 +1476,32 @@ private fun ItemDados(
     onClick: () -> Unit,
     subtitulo: String? = null
 ) {
-    Card(
-        onClick = onClick,
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icone,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
+        Icon(
+            imageVector = icone,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            Text(
+                text = titulo,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
             )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
+            if (subtitulo != null) {
                 Text(
-                    text = titulo,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+                    text = subtitulo,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (subtitulo != null) {
-                    Text(
-                        text = subtitulo,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
         }
     }
