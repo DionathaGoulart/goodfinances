@@ -11,20 +11,19 @@ Baixe o APK mais recente na página de [**Releases**](https://github.com/Dionath
 **Controle financeiro**
 - Dashboard com saldo total/do mês, ganhos e gastos em tempo real — e **resumo do fechamento** do mês anterior no começo de cada mês
 - Lançamentos com categoria, descrição e data — máscara de moeda brasileira (digite `1234` e vira `R$ 12,34`)
-- **Compras parceladas** (um lançamento por mês) e **transferências entre contextos** (Pessoal ↔ Empresa ↔ Casa) com as duas pernas vinculadas — deletou uma, some a outra
-- Histórico agrupado por data, com busca e filtros por período, **tipo (ganho/gasto), categoria e membro da casa**
-- Swipe para deletar com **Desfazer** · deslize para os lados na Home para trocar de contexto
+- **Compras parceladas** (o valor total é dividido em um lançamento por mês) e **transferências entre contextos** (Pessoal ↔ Empresa ↔ Casa) com as duas pernas vinculadas — deletou uma, some a outra
+- **Compras no cartão de crédito** agrupadas por cartão na Home, com **"Pagar fatura"** num toque — a pendência só entra no saldo quando você paga
+- Histórico agrupado por data — **toque para editar, toque longo para o menu** (editar/esconder/excluir)
 - Transações recorrentes e **salário fixo lançado automaticamente** no dia configurado
 - Gráficos em Canvas puro (categorias com alternância ganhos/gastos, linha e barras de 6 meses), **orçamentos por categoria** e estatísticas rápidas
-- **Toque numa fatia da pizza** para ver os lançamentos daquela categoria
+- **Toque numa fatia da pizza** para ver os lançamentos daquela categoria — débito/dinheiro separados por categoria e crédito por cartão
 - **Insights automáticos** do mês: variações relevantes vs o mês anterior ("gastou 32% a mais em Alimentação")
 - **Faturas do cartão** em aberto, agrupadas por vencimento
 - **Widget** de lançamento rápido na home do Android e **bloqueio por biometria** opcional
 
-**Planejamento**
-- **Metas de economia** — defina um objetivo (ex: viagem), guarde/retire e acompanhe o progresso
-- **Contas a pagar/receber** — agende boletos e valores a receber; marque como pago e vira lançamento
+**Planejamento e avisos**
 - **Notificações** — avisos de orçamento estourando, DAS vencendo, limite do MEI, contas vencendo, recorrências do dia e lembrete quando você fica dias sem registrar
+- **Atualização in-app** — o app baixa e instala a versão nova sozinho quando sai release nova
 
 **Notas fiscais e comprovantes**
 - Anexe foto, imagem ou PDF a qualquer lançamento — **imagens viram PDF automaticamente**
