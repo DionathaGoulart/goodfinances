@@ -34,6 +34,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
@@ -62,6 +63,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.finapp.data.EstadoDownload
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
@@ -501,33 +503,87 @@ fun HomeScreen(
     val atualizacao by viewModel.atualizacao.collectAsStateWithLifecycle()
     atualizacao?.let { nova ->
         val contexto = LocalContext.current
+        val download by viewModel.downloadAtualizacao.collectAsStateWithLifecycle()
+        val baixando = download is EstadoDownload.Baixando
         AlertDialog(
-            onDismissRequest = viewModel::dispensarAtualizacao,
+            // Sem fechar por toque fora durante o download
+            onDismissRequest = {
+                if (!baixando) viewModel.dispensarAtualizacao()
+            },
             title = { Text("Nova versão ${nova.versao} disponível") },
             text = {
-                Text(
-                    if (nova.notas.isBlank()) {
-                        "Uma atualização do GoodFinances está pronta para baixar."
-                    } else {
-                        nova.notas.take(600)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (val estado = download) {
+                        is EstadoDownload.Baixando -> {
+                            Text("Baixando atualização…")
+                            val progresso = estado.progresso
+                            if (progresso != null) {
+                                LinearProgressIndicator(
+                                    progress = { progresso },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            } else {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+
+                        EstadoDownload.Erro -> Text(
+                            "Não foi possível baixar a atualização. " +
+                                "Tente de novo ou baixe pelo navegador."
+                        )
+
+                        EstadoDownload.Ocioso -> Text(
+                            if (nova.notas.isBlank()) {
+                                "Uma atualização do GoodFinances está pronta para instalar."
+                            } else {
+                                nova.notas.take(600)
+                            }
+                        )
                     }
-                )
+                }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        contexto.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(nova.urlDownload))
-                        )
-                        viewModel.dispensarAtualizacao()
+                when (download) {
+                    is EstadoDownload.Baixando -> Unit
+
+                    EstadoDownload.Erro -> {
+                        TextButton(
+                            onClick = {
+                                contexto.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(nova.urlDownload))
+                                )
+                                viewModel.dispensarAtualizacao()
+                            }
+                        ) {
+                            Text("Abrir no navegador")
+                        }
+                        TextButton(onClick = viewModel::baixarAtualizacao) {
+                            Text("Tentar de novo")
+                        }
                     }
-                ) {
-                    Text("Baixar")
+
+                    EstadoDownload.Ocioso -> TextButton(
+                        onClick = {
+                            if (nova.temApk) {
+                                viewModel.baixarAtualizacao()
+                            } else {
+                                // Release sem APK anexado: só a página no navegador
+                                contexto.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(nova.urlDownload))
+                                )
+                                viewModel.dispensarAtualizacao()
+                            }
+                        }
+                    ) {
+                        Text(if (nova.temApk) "Atualizar" else "Baixar")
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dispensarAtualizacao) {
-                    Text("Agora não")
+                if (!baixando) {
+                    TextButton(onClick = viewModel::dispensarAtualizacao) {
+                        Text("Agora não")
+                    }
                 }
             }
         )

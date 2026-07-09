@@ -7,6 +7,9 @@
     <!-- Notificações locais (orçamento, DAS, recorrências) — Android 13+ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Auto-atualização: instalar APK baixado do GitHub Releases -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:name=".FinanApplication"
         android:allowBackup="true"
