@@ -104,7 +104,8 @@ class ParserImportacao @Inject constructor() {
                 criadoPor = obj.optString("criadoPor", ""),
                 criadoPorUid = obj.optString("criadoPorUid", ""),
                 transferenciaId = obj.optString("transferenciaId", ""),
-                notaFiscal = obj.optString("notaFiscal", "")
+                notaFiscal = obj.optString("notaFiscal", ""),
+                pago = obj.optBoolean("pago", true)
             )
         }
 

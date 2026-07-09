@@ -18,8 +18,10 @@ import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
@@ -129,6 +131,16 @@ fun TransacaoItem(
                         modifier = Modifier.size(14.dp)
                     )
                 }
+                // Pendente: tem data para pagar, ainda não desconta do saldo
+                if (!transacao.pago) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Filled.Schedule,
+                        contentDescription = "Aguardando pagamento",
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
                 // Compra no crédito: mostra o dia em que a compra foi feita
                 if (transacao.cartaoUuid.isNotBlank()) {
                     Spacer(modifier = Modifier.width(4.dp))
@@ -155,7 +167,8 @@ fun TransacaoItem(
             Text(
                 text = "$sinal ${Formatadores.moeda(transacao.valor)}",
                 style = MaterialTheme.typography.titleMedium,
-                color = cor
+                // Pendente fica esmaecido: ainda não saiu do saldo
+                color = if (transacao.pago) cor else cor.copy(alpha = 0.55f)
             )
             if (mostrarData) {
                 Text(
@@ -170,7 +183,8 @@ fun TransacaoItem(
 
 /**
  * Linha de transação com menu de contexto ao segurar o dedo: Editar,
- * Excluir e — quando [podeEsconder] — Esconder/Reexibir da visão Membros.
+ * Marcar como pago/pendente, Excluir e — quando [podeEsconder] —
+ * Esconder/Reexibir da visão Membros.
  * [podeEditar] false (lançamento de outro membro da casa) desabilita
  * editar/excluir e o toque chama [onBloqueado].
  */
@@ -184,6 +198,7 @@ fun TransacaoLinha(
     onAlternarOculto: (Transacao) -> Unit,
     modifier: Modifier = Modifier,
     mostrarData: Boolean = true,
+    onAlternarPago: ((Transacao) -> Unit)? = null,
     onBloqueado: () -> Unit = {}
 ) {
     var menuAberto by remember { mutableStateOf(false) }
@@ -214,6 +229,30 @@ fun TransacaoLinha(
                     onClick = {
                         menuAberto = false
                         onEditar(transacao)
+                    }
+                )
+            }
+            if (podeEditar && onAlternarPago != null) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (transacao.pago) "Marcar como pendente"
+                            else "Marcar como pago"
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = if (transacao.pago) {
+                                Icons.Filled.Schedule
+                            } else {
+                                Icons.Filled.CheckCircle
+                            },
+                            contentDescription = null
+                        )
+                    },
+                    onClick = {
+                        menuAberto = false
+                        onAlternarPago(transacao)
                     }
                 )
             }

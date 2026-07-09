@@ -491,7 +491,8 @@ class SyncManager @Inject constructor(
                         "transferenciaId" to t.transferenciaId,
                         "oculto" to t.oculto,
                         "cartaoUuid" to t.cartaoUuid,
-                        "dataCompra" to t.dataCompra?.toEpochDay()
+                        "dataCompra" to t.dataCompra?.toEpochDay(),
+                        "pago" to t.pago
                     )
                 )
             }
@@ -689,6 +690,7 @@ class SyncManager @Inject constructor(
             oculto = doc.getBoolean("oculto") ?: false,
             cartaoUuid = doc.getString("cartaoUuid") ?: "",
             dataCompra = doc.getLong("dataCompra")?.let { LocalDate.ofEpochDay(it) },
+            pago = doc.getBoolean("pago") ?: true,
             // A nota fiscal é um arquivo local — nunca vem do remoto
             notaFiscal = local?.notaFiscal ?: ""
         )

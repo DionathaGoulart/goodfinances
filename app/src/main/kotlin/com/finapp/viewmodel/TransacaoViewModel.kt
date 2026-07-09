@@ -126,7 +126,10 @@ class TransacaoViewModel @Inject constructor(
                             criadoPorUid = autorUid,
                             notaFiscal = if (indice == 0) notaFiscal else "",
                             cartaoUuid = cartao?.uuid.orEmpty(),
-                            dataCompra = if (cartao != null) data else null
+                            dataCompra = if (cartao != null) data else null,
+                            // Crédito: pendente até pagar a fatura. Parcelas
+                            // futuras sem cartão também aguardam pagamento.
+                            pago = cartao == null && indice == 0
                         )
                     )
                 }

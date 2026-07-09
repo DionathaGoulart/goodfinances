@@ -20,6 +20,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.toColorInt
 import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Transacao
+import com.finapp.ui.theme.GreenPrimary
 import com.finapp.utils.Formatadores
 
 /** Gastos de um cartão agrupados numa lista (nome, cor, total e itens). */
@@ -38,7 +40,10 @@ data class GrupoCartao(
     val cor: String,
     val total: Long,
     val transacoes: List<Transacao>
-)
+) {
+    /** Quanto da fatura ainda está pendente (0 = fatura paga). */
+    val pendente: Long get() = transacoes.filter { !it.pago }.sumOf { it.valor }
+}
 
 /**
  * Separa uma lista de transações em (grupos por cartão, avulsas).
@@ -69,13 +74,16 @@ fun agruparPorCartao(
 /**
  * Cabeçalho expansível de um [GrupoCartao]: cor + nome do cartão, quantidade
  * de compras e total. Toque alterna [expandido] (o chamador lista os itens).
+ * Com fatura pendente e [onPagarFatura] definido, mostra o botão que confirma
+ * o pagamento de todas as compras do grupo (aí sim descontam do saldo).
  */
 @Composable
 fun CartaoGrupoCabecalho(
     grupo: GrupoCartao,
     expandido: Boolean,
     onAlternar: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onPagarFatura: (() -> Unit)? = null
 ) {
     val cor = runCatching { Color(grupo.cor.toColorInt()) }
         .getOrDefault(MaterialTheme.colorScheme.primary)
@@ -132,6 +140,32 @@ fun CartaoGrupoCabecalho(
                 imageVector = if (expandido) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                 contentDescription = if (expandido) "Recolher" else "Expandir",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        // Fatura em aberto não desconta do saldo — o botão confirma o pagamento
+        if (grupo.pendente > 0L && onPagarFatura != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 60.dp, end = 12.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Em aberto: ${Formatadores.moeda(grupo.pendente)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onPagarFatura) {
+                    Text("Pagar fatura")
+                }
+            }
+        } else if (grupo.transacoes.isNotEmpty() && grupo.pendente == 0L) {
+            Text(
+                text = "Fatura paga",
+                style = MaterialTheme.typography.bodyMedium,
+                color = GreenPrimary,
+                modifier = Modifier.padding(start = 60.dp, end = 12.dp, bottom = 12.dp)
             )
         }
     }

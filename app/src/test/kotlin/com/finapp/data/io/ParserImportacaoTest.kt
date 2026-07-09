@@ -122,6 +122,21 @@ class ParserImportacaoTest {
     }
 
     @Test
+    fun `json le pago e assume pago quando ausente`() {
+        val json = """
+            {"transacoes":[
+              {"data":"2024-01-01","valor":10.0,"tipo":"gasto","pago":false},
+              {"data":"2024-01-02","valor":20.0,"tipo":"gasto"}
+            ]}
+        """.trimIndent()
+
+        val transacoes = parser.lerTexto(json, perfil).transacoes
+
+        assertEquals(false, transacoes[0].pago)
+        assertEquals(true, transacoes[1].pago)
+    }
+
+    @Test
     fun `json preserva centavos sem erro de arredondamento`() {
         val json = """{"transacoes":[{"data":"2024-01-01","valor":0.29,"tipo":"gasto"}]}"""
         assertEquals(29L, parser.lerTexto(json, perfil).transacoes[0].valor)

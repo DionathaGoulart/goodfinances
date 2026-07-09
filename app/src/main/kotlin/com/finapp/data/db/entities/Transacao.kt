@@ -58,7 +58,14 @@ data class Transacao(
      */
     val cartaoUuid: String = "",
     /** Dia em que a compra no crédito foi feita (null = não é compra de cartão). */
-    val dataCompra: LocalDate? = null
+    val dataCompra: LocalDate? = null,
+    /**
+     * False = pendente: tem data para pagar ([data]) mas ainda não saiu do
+     * bolso — NÃO conta no saldo até ser marcada como paga. Nascem pendentes
+     * as compras no crédito (pagas ao pagar a fatura) e os GASTOS lançados
+     * por recorrência. Ganhos e lançamentos manuais nascem pagos.
+     */
+    val pago: Boolean = true
 )
 
 /**

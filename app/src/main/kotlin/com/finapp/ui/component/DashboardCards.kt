@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -27,12 +28,16 @@ import com.finapp.utils.Formatadores
 /**
  * Card principal do Dashboard com o saldo em destaque (centavos).
  * O toque alterna entre saldo total e saldo do mês (controlado pelo chamador).
+ * [aPagarMes] > 0 mostra as pendências do mês (fatura, recorrências ainda não
+ * pagas) e quanto sobra do saldo depois de pagar tudo.
  */
 @Composable
 fun SaldoCard(
     saldo: Long,
     modifier: Modifier = Modifier,
     rotulo: String = "SALDO TOTAL",
+    aPagarMes: Long = 0L,
+    saldoAposPagar: Long = 0L,
     onClick: () -> Unit = {}
 ) {
     Card(
@@ -59,6 +64,28 @@ fun SaldoCard(
                 style = MaterialTheme.typography.displayLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
+            if (aPagarMes > 0L) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Schedule,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.size(6.dp))
+                    Text(
+                        text = "A pagar no mês: ${Formatadores.moeda(aPagarMes)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    text = "Após pagar tudo: ${Formatadores.moeda(saldoAposPagar)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (saldoAposPagar >= 0L) GreenPrimary else RedExpense
+                )
+            }
         }
     }
 }
