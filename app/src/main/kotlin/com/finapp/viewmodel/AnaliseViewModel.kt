@@ -29,11 +29,16 @@ import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import javax.inject.Inject
 
-/** Fatia do gráfico de pizza: categoria, total gasto (centavos) e cor cadastrada. */
+/**
+ * Fatia do gráfico de pizza: categoria (ou cartão), total em centavos e cor.
+ * [cartaoUuid] preenchido = fatia que agrupa as compras no crédito daquele
+ * cartão (débito/dinheiro seguem separados por categoria).
+ */
 data class FatiaPizza(
     val nome: String,
     val valor: Long,
-    val cor: String
+    val cor: String,
+    val cartaoUuid: String = ""
 )
 
 /** Ganhos e gastos consolidados de um mês, em centavos (gráficos de linha e barras). */
@@ -117,22 +122,45 @@ class AnaliseViewModel @Inject constructor(
     private val _tipoCategoria = MutableStateFlow(TipoTransacao.GASTO)
     val tipoCategoria: StateFlow<TipoTransacao> = _tipoCategoria.asStateFlow()
 
-    /** Somas por categoria no período (do tipo escolhido) — gráfico de pizza. */
+    /**
+     * Fatias da pizza no período (do tipo escolhido). Débito/dinheiro somam
+     * por categoria; compras no crédito viram uma fatia por cartão (mesma
+     * separação das listas). Transferências entre baldes ficam de fora.
+     */
     val somasPorCategoria: StateFlow<List<FatiaPizza>> =
         combine(perfil, intervalo, _tipoCategoria) { p, i, t -> Triple(p, i, t) }
             .flatMapLatest { (p, i, t) ->
                 combine(
-                    repository.observarSomasPorCategoria(p, t, i.inicio, i.fim),
-                    repository.observarCategorias(p)
-                ) { somas, categorias ->
-                    somas.map { soma ->
-                        FatiaPizza(
-                            nome = soma.categoria,
-                            valor = soma.total,
-                            cor = categorias.firstOrNull { it.nome == soma.categoria }?.cor
-                                ?: "#6B7280"
-                        )
+                    repository.observarTransacoesPeriodo(p, i.inicio, i.fim),
+                    repository.observarCategorias(p),
+                    repository.observarCartoes(p)
+                ) { transacoes, categorias, cartoes ->
+                    val doTipo = transacoes.filter {
+                        it.tipo == t && it.categoria != FinanceRepository.NOME_TRANSFERENCIA
                     }
+                    val (noCartao, avulsas) = doTipo.partition { it.cartaoUuid.isNotBlank() }
+                    val fatiasCategoria = avulsas
+                        .groupBy { it.categoria }
+                        .map { (nome, itens) ->
+                            FatiaPizza(
+                                nome = nome,
+                                valor = itens.sumOf { it.valor },
+                                cor = categorias.firstOrNull { it.nome == nome }?.cor
+                                    ?: "#6B7280"
+                            )
+                        }
+                    val fatiasCartao = noCartao
+                        .groupBy { it.cartaoUuid }
+                        .map { (uuid, itens) ->
+                            val cartao = cartoes.firstOrNull { it.uuid == uuid }
+                            FatiaPizza(
+                                nome = cartao?.nome ?: "Cartão",
+                                valor = itens.sumOf { it.valor },
+                                cor = cartao?.cor ?: "#8B5CF6",
+                                cartaoUuid = uuid
+                            )
+                        }
+                    (fatiasCategoria + fatiasCartao).sortedByDescending { it.valor }
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

@@ -61,6 +61,7 @@ import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
 import com.finapp.utils.PeriodoFiltro
 import com.finapp.viewmodel.AnaliseViewModel
+import com.finapp.viewmodel.FatiaPizza
 import com.finapp.viewmodel.Fatura
 import com.finapp.viewmodel.Insight
 import com.finapp.viewmodel.OrcamentoCategoria
@@ -92,7 +93,7 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
 
     var rangePickerAberto by remember { mutableStateOf(false) }
     var detalheAberto by remember { mutableStateOf<DetalheEstatistica?>(null) }
-    var categoriaDetalhe by remember { mutableStateOf<String?>(null) }
+    var fatiaDetalhe by remember { mutableStateOf<FatiaPizza?>(null) }
     var faturaDetalhe by remember { mutableStateOf<Fatura?>(null) }
 
     Column(
@@ -180,7 +181,9 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
             Spacer(modifier = Modifier.height(8.dp))
             GraficoPizza(
                 fatias = fatias,
-                onVerCategoria = { categoriaDetalhe = it }
+                onVerCategoria = { nome ->
+                    fatiaDetalhe = fatias.firstOrNull { it.nome == nome }
+                }
             )
         }
 
@@ -253,13 +256,13 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
         )
     }
 
-    // ---------- Lançamentos de uma categoria (toque na fatia da pizza) ----------
-    categoriaDetalhe?.let { categoria ->
+    // ---------- Lançamentos de uma fatia (categoria ou cartão) ----------
+    fatiaDetalhe?.let { fatia ->
         CategoriaDetalheSheet(
-            categoria = categoria,
+            fatia = fatia,
             transacoes = transacoesPeriodo,
             tipo = tipoCategoria,
-            onFechar = { categoriaDetalhe = null }
+            onFechar = { fatiaDetalhe = null }
         )
     }
 
@@ -804,19 +807,29 @@ private fun FaturaDetalheSheet(fatura: Fatura, onFechar: () -> Unit) {
     }
 }
 
-/** Lançamentos de uma categoria no período (aberto ao tocar na fatia). */
+/**
+ * Lançamentos de uma fatia da pizza no período (aberto ao tocar na fatia).
+ * Fatia de cartão lista as compras no crédito daquele cartão; fatia de
+ * categoria lista só o débito/dinheiro dela (o crédito está no cartão).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CategoriaDetalheSheet(
-    categoria: String,
+    fatia: FatiaPizza,
     transacoes: List<Transacao>,
     tipo: TipoTransacao,
     onFechar: () -> Unit
 ) {
     val estado = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val doTipo = remember(transacoes, categoria, tipo) {
+    val doTipo = remember(transacoes, fatia, tipo) {
         transacoes
-            .filter { it.categoria == categoria && it.tipo == tipo }
+            .filter { transacao ->
+                transacao.tipo == tipo && if (fatia.cartaoUuid.isNotBlank()) {
+                    transacao.cartaoUuid == fatia.cartaoUuid
+                } else {
+                    transacao.cartaoUuid.isBlank() && transacao.categoria == fatia.nome
+                }
+            }
             .sortedByDescending { it.valor }
     }
     val total = remember(doTipo) { doTipo.sumOf { it.valor } }
@@ -829,7 +842,7 @@ private fun CategoriaDetalheSheet(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp)
         ) {
-            TituloDetalhe(categoria)
+            TituloDetalhe(fatia.nome)
             LinhaValor(
                 nome = "Total no período",
                 valor = Formatadores.moeda(total),
