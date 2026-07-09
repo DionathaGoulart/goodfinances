@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,10 +26,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -173,76 +169,10 @@ fun TransacaoItem(
 }
 
 /**
- * [TransacaoItem] com swipe para a esquerda para deletar.
- * O chamador mostra o snackbar de desfazer.
- * [permitirSwipe] = false desabilita o swipe (ex: lançamento de outro
- * membro da Casa — só o autor apaga).
- */
-@Composable
-fun TransacaoItemDismissivel(
-    transacao: Transacao,
-    onDeletar: (Transacao) -> Unit,
-    modifier: Modifier = Modifier,
-    mostrarData: Boolean = true,
-    onClick: (() -> Unit)? = null,
-    onLongClick: (() -> Unit)? = null,
-    permitirSwipe: Boolean = true
-) {
-    if (!permitirSwipe) {
-        TransacaoItem(
-            transacao = transacao,
-            modifier = modifier,
-            mostrarData = mostrarData,
-            onClick = onClick,
-            onLongClick = onLongClick
-        )
-        return
-    }
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { valor ->
-            if (valor == SwipeToDismissBoxValue.EndToStart) {
-                onDeletar(transacao)
-                true
-            } else {
-                false
-            }
-        }
-    )
-
-    SwipeToDismissBox(
-        state = dismissState,
-        modifier = modifier,
-        enableDismissFromStartToEnd = false,
-        backgroundContent = {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(RedExpense.copy(alpha = 0.8f))
-                    .padding(horizontal = 20.dp),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Delete,
-                    contentDescription = "Deletar",
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
-    ) {
-        TransacaoItem(
-            transacao = transacao,
-            mostrarData = mostrarData,
-            onClick = onClick,
-            onLongClick = onLongClick
-        )
-    }
-}
-
-/**
- * Linha de transação com swipe-delete (undo pelo chamador) + menu de contexto
- * ao segurar o dedo: Editar, Excluir e — quando [podeEsconder] — Esconder/
- * Reexibir da visão Membros. [podeEditar] false (lançamento de outro membro
- * da casa) desabilita swipe/editar/excluir e o toque chama [onBloqueado].
+ * Linha de transação com menu de contexto ao segurar o dedo: Editar,
+ * Excluir e — quando [podeEsconder] — Esconder/Reexibir da visão Membros.
+ * [podeEditar] false (lançamento de outro membro da casa) desabilita
+ * editar/excluir e o toque chama [onBloqueado].
  */
 @Composable
 fun TransacaoLinha(
@@ -260,11 +190,9 @@ fun TransacaoLinha(
     val temMenu = podeEditar || podeEsconder
 
     Box(modifier = modifier) {
-        TransacaoItemDismissivel(
+        TransacaoItem(
             transacao = transacao,
             mostrarData = mostrarData,
-            permitirSwipe = podeEditar,
-            onDeletar = onExcluir,
             onClick = { if (podeEditar) onEditar(transacao) else onBloqueado() },
             onLongClick = if (temMenu) {
                 { menuAberto = true }
