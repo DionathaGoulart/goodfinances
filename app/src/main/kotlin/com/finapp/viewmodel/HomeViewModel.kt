@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.finapp.data.Atualizacao
 import com.finapp.data.AtualizacaoManager
 import com.finapp.data.PerfilManager
+import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.db.entities.podeSerEditadaPor
@@ -125,6 +126,11 @@ class HomeViewModel @Inject constructor(
                 repository.observarTransacoesPeriodo(p, mes.atDay(1), mes.atEndOfMonth())
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Cartões do contexto — nomes/cores dos grupos de crédito da lista. */
+    val cartoes: StateFlow<List<Cartao>> = perfilDados
+        .flatMapLatest { repository.observarCartoes(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Vai para o mês anterior / próximo / um mês qualquer / de volta ao atual. */
     fun mesAnterior() {

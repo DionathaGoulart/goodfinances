@@ -63,10 +63,12 @@ import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.db.entities.ehEmpresa
+import com.finapp.ui.component.CartaoGrupoCabecalho
 import com.finapp.ui.component.LucroCard
 import com.finapp.ui.component.ResumoCard
 import com.finapp.ui.component.SaldoCard
 import com.finapp.ui.component.TransacaoLinha
+import com.finapp.ui.component.agruparPorCartao
 import com.finapp.ui.component.TransacaoModal
 import com.finapp.ui.component.TransferenciaDialog
 import com.finapp.ui.component.VisaoMembros
@@ -187,8 +189,8 @@ fun HomeScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
                 // Deslizar para os lados troca o contexto (Pessoal/Empresa/Casa).
-                // Filhos com gesto horizontal próprio (swipe-delete, chips com
-                // scroll) continuam com prioridade — aqui só chega o que sobra.
+                // Filhos com gesto horizontal próprio (chips com scroll)
+                // continuam com prioridade — aqui só chega o que sobra.
                 .pointerInput(contextos, perfilDados) {
                     if (contextos.size > 1) {
                         var arrasto = 0f
@@ -385,39 +387,74 @@ fun HomeScreen(
                     }
                 }
             } else {
-                LazyColumn(modifier = Modifier.weight(1f)) {
-                    items(transacoesDoMes, key = { it.id }) { transacao ->
-                        val podeEditar = viewModel.podeEditar(transacao)
-                        TransacaoLinha(
-                            transacao = transacao,
-                            podeEditar = podeEditar,
-                            podeEsconder = podeEsconder,
-                            onEditar = {
-                                transacaoEmEdicao = it
-                                modalAberto = true
-                            },
-                            onExcluir = { deletada ->
-                                viewModel.deletarTransacao(deletada)
-                                escopo.launch {
-                                    val resultado = snackbarHostState.showSnackbar(
-                                        message = "Transação deletada",
-                                        actionLabel = "Desfazer",
-                                        duration = SnackbarDuration.Short
-                                    )
-                                    if (resultado == SnackbarResult.ActionPerformed) {
-                                        viewModel.restaurarTransacao(deletada)
-                                    }
-                                }
-                            },
-                            onAlternarOculto = viewModel::alternarOculto,
-                            onBloqueado = {
-                                escopo.launch {
-                                    snackbarHostState.showSnackbar(
-                                        "Só quem lançou pode editar esta transação"
-                                    )
+                // Débito/dinheiro ficam soltos; compras no crédito viram um
+                // grupo expansível por cartão (toque no cabeçalho abre/fecha)
+                val cartoes by viewModel.cartoes.collectAsStateWithLifecycle()
+                val (gruposCartao, avulsas) = remember(transacoesDoMes, cartoes) {
+                    agruparPorCartao(transacoesDoMes, cartoes)
+                }
+                var cartoesExpandidos by rememberSaveable {
+                    mutableStateOf(listOf<String>())
+                }
+
+                val linhaTransacao: @Composable (Transacao) -> Unit = { transacao ->
+                    val podeEditar = viewModel.podeEditar(transacao)
+                    TransacaoLinha(
+                        transacao = transacao,
+                        podeEditar = podeEditar,
+                        podeEsconder = podeEsconder,
+                        onEditar = {
+                            transacaoEmEdicao = it
+                            modalAberto = true
+                        },
+                        onExcluir = { deletada ->
+                            viewModel.deletarTransacao(deletada)
+                            escopo.launch {
+                                val resultado = snackbarHostState.showSnackbar(
+                                    message = "Transação deletada",
+                                    actionLabel = "Desfazer",
+                                    duration = SnackbarDuration.Short
+                                )
+                                if (resultado == SnackbarResult.ActionPerformed) {
+                                    viewModel.restaurarTransacao(deletada)
                                 }
                             }
-                        )
+                        },
+                        onAlternarOculto = viewModel::alternarOculto,
+                        onBloqueado = {
+                            escopo.launch {
+                                snackbarHostState.showSnackbar(
+                                    "Só quem lançou pode editar esta transação"
+                                )
+                            }
+                        }
+                    )
+                }
+
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    gruposCartao.forEach { grupo ->
+                        val expandido = grupo.cartaoUuid in cartoesExpandidos
+                        item(key = "cartao-${grupo.cartaoUuid}") {
+                            CartaoGrupoCabecalho(
+                                grupo = grupo,
+                                expandido = expandido,
+                                onAlternar = {
+                                    cartoesExpandidos = if (expandido) {
+                                        cartoesExpandidos - grupo.cartaoUuid
+                                    } else {
+                                        cartoesExpandidos + grupo.cartaoUuid
+                                    }
+                                }
+                            )
+                        }
+                        if (expandido) {
+                            items(grupo.transacoes, key = { it.id }) { transacao ->
+                                linhaTransacao(transacao)
+                            }
+                        }
+                    }
+                    items(avulsas, key = { it.id }) { transacao ->
+                        linhaTransacao(transacao)
                     }
                 }
             }

@@ -1,0 +1,138 @@
+package com.finapp.ui.component
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.core.graphics.toColorInt
+import com.finapp.data.db.entities.Cartao
+import com.finapp.data.db.entities.Transacao
+import com.finapp.utils.Formatadores
+
+/** Gastos de um cartão agrupados numa lista (nome, cor, total e itens). */
+data class GrupoCartao(
+    val cartaoUuid: String,
+    val nome: String,
+    val cor: String,
+    val total: Long,
+    val transacoes: List<Transacao>
+)
+
+/**
+ * Separa uma lista de transações em (grupos por cartão, avulsas).
+ * Compras no crédito viram um [GrupoCartao] por cartão; débito/dinheiro
+ * seguem soltas. Cartão apagado aparece como "Cartão".
+ */
+fun agruparPorCartao(
+    transacoes: List<Transacao>,
+    cartoes: List<Cartao>
+): Pair<List<GrupoCartao>, List<Transacao>> {
+    val (noCartao, avulsas) = transacoes.partition { it.cartaoUuid.isNotBlank() }
+    val grupos = noCartao
+        .groupBy { it.cartaoUuid }
+        .map { (uuid, itens) ->
+            val cartao = cartoes.firstOrNull { it.uuid == uuid }
+            GrupoCartao(
+                cartaoUuid = uuid,
+                nome = cartao?.nome ?: "Cartão",
+                cor = cartao?.cor ?: "#8B5CF6",
+                total = itens.sumOf { it.valor },
+                transacoes = itens
+            )
+        }
+        .sortedBy { it.nome }
+    return grupos to avulsas
+}
+
+/**
+ * Cabeçalho expansível de um [GrupoCartao]: cor + nome do cartão, quantidade
+ * de compras e total. Toque alterna [expandido] (o chamador lista os itens).
+ */
+@Composable
+fun CartaoGrupoCabecalho(
+    grupo: GrupoCartao,
+    expandido: Boolean,
+    onAlternar: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val cor = runCatching { Color(grupo.cor.toColorInt()) }
+        .getOrDefault(MaterialTheme.colorScheme.primary)
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable(onClick = onAlternar),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(cor.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.CreditCard,
+                    contentDescription = null,
+                    tint = cor,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = grupo.nome,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+                Text(
+                    text = "${grupo.transacoes.size} " +
+                        (if (grupo.transacoes.size == 1) "compra" else "compras") +
+                        " no crédito",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = "- ${Formatadores.moeda(grupo.total)}",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(
+                imageVector = if (expandido) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (expandido) "Recolher" else "Expandir",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
