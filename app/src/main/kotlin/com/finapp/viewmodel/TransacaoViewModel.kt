@@ -64,12 +64,13 @@ class TransacaoViewModel @Inject constructor(
     // ---------- CRUD ----------
 
     /**
-     * [valorCentavos] em centavos. Se [repetirMensalmente], cria também uma
-     * recorrência mensal a partir do mês seguinte.
-     * [parcelas] > 1 cria um lançamento por mês com o valor informado
-     * (valor da parcela); a nota fiscal fica só na primeira.
-     * [lancarProLaborePessoal] (modo misto, aba Empresa): espelha o gasto
-     * como ganho no balde Pessoal — o pró-labore do dono.
+     * [valorCentavos] em centavos e é o valor TOTAL da compra. Se
+     * [repetirMensalmente], cria também uma recorrência mensal a partir do
+     * mês seguinte. [parcelas] > 1 divide o total em lançamentos mensais
+     * iguais (o resto da divisão vai na primeira parcela); a nota fiscal
+     * fica só na primeira. [lancarProLaborePessoal] (modo misto, aba
+     * Empresa): espelha o gasto como ganho no balde Pessoal — o pró-labore
+     * do dono.
      */
     fun adicionarTransacao(
         valorCentavos: Long,
@@ -93,6 +94,10 @@ class TransacaoViewModel @Inject constructor(
             val autor = usuario?.nome.orEmpty()
             val autorUid = usuario?.uid.orEmpty()
             val totalParcelas = parcelas.coerceIn(1, 24)
+            // O usuário digita o TOTAL; cada parcela leva total/n e o resto
+            // da divisão inteira vai na primeira (a soma bate com o total).
+            val valorParcela = valorCentavos / totalParcelas
+            val valorPrimeira = valorCentavos - valorParcela * (totalParcelas - 1)
             // Compra no crédito: a 1ª parcela cai no vencimento da fatura da
             // compra; as demais, nas faturas dos meses seguintes.
             val vencimentoBase = cartao?.let { repository.vencimentoFatura(it, data) }
@@ -111,7 +116,7 @@ class TransacaoViewModel @Inject constructor(
                     }
                     repository.inserirTransacao(
                         Transacao(
-                            valor = valorCentavos,
+                            valor = if (indice == 0) valorPrimeira else valorParcela,
                             tipo = tipo,
                             categoria = categoria,
                             descricao = descricaoFinal,
