@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.finapp.data.Atualizacao
 import com.finapp.data.AtualizacaoManager
+import com.finapp.data.EstadoDownload
 import com.finapp.data.PerfilManager
 import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Perfil
@@ -168,8 +169,22 @@ class HomeViewModel @Inject constructor(
             if (dispensada) null else nova
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** Progresso do download do APK novo (dialog da Home). */
+    val downloadAtualizacao: StateFlow<EstadoDownload> = atualizacaoManager.download
+
+    /** Baixa o APK da release e abre o instalador; fecha o aviso se der certo. */
+    fun baixarAtualizacao() {
+        val nova = atualizacao.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (atualizacaoManager.baixarEInstalar(nova)) {
+                _atualizacaoDispensada.value = true
+            }
+        }
+    }
+
     /** Esconde o aviso até a próxima abertura do app. */
     fun dispensarAtualizacao() {
+        atualizacaoManager.limparDownload()
         _atualizacaoDispensada.value = true
     }
 

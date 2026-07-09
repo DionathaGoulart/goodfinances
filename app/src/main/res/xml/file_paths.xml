@@ -2,4 +2,6 @@
 <!-- Pastas internas expostas via FileProvider (notas fiscais anexadas) -->
 <paths>
     <files-path name="notas" path="notas/" />
+    <!-- APK da auto-atualização baixado do GitHub Releases -->
+    <cache-path name="atualizacoes" path="atualizacoes/" />
 </paths>
