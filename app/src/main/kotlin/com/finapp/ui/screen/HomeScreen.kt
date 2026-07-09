@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -28,8 +30,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,6 +100,7 @@ fun HomeScreen(
     transacaoViewModel: TransacaoViewModel = hiltViewModel()
 ) {
     val saldo by viewModel.saldoTotal.collectAsStateWithLifecycle()
+    val pendenteMes by viewModel.pendenteMes.collectAsStateWithLifecycle()
     val ganhos by viewModel.ganhosMes.collectAsStateWithLifecycle()
     val gastos by viewModel.gastosMes.collectAsStateWithLifecycle()
     val transacoesDoMes by viewModel.transacoesDoMes.collectAsStateWithLifecycle()
@@ -128,6 +132,20 @@ fun HomeScreen(
     var transferenciaAberta by remember { mutableStateOf(false) }
     // Seletor de mês/ano (navegação do histórico)
     var mesPickerAberto by remember { mutableStateOf(false) }
+
+    // Estado da lista: o FAB "Adicionar" mostra o rótulo no topo e recolhe
+    // para só o ícone durante a rolagem (libera espaço para o histórico)
+    val listState = rememberLazyListState()
+    val fabExpandido by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 &&
+                listState.firstVisibleItemScrollOffset == 0
+        }
+    }
+    // Trocar de mês recomeça a lista do topo
+    LaunchedEffect(mesSelecionado, perfilDados) {
+        listState.scrollToItem(0)
+    }
 
     // Mensagens dos ViewModels (sucesso do modal, erros etc.) viram snackbar
     LaunchedEffect(Unit) {
@@ -166,19 +184,22 @@ fun HomeScreen(
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                     }
-                    FloatingActionButton(
+                    ExtendedFloatingActionButton(
                         onClick = {
                             transacaoEmEdicao = null
                             modalAberto = true
                         },
+                        expanded = fabExpandido,
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = "Adicionar transação"
+                            )
+                        },
+                        text = { Text("Adicionar") },
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = "Adicionar transação"
-                        )
-                    }
+                    )
                 }
             }
         }
@@ -309,6 +330,10 @@ fun HomeScreen(
                 saldo = if (mostrandoSaldoMes) ganhos - gastos else saldo,
                 rotulo = if (mostrandoSaldoMes) "SALDO DO MÊS · TOQUE P/ TOTAL"
                 else "SALDO TOTAL · TOQUE P/ MÊS",
+                // Pendências do mês (fatura, recorrências): quanto ainda vai
+                // sair e quanto sobra depois de pagar tudo
+                aPagarMes = if (mostrandoSaldoMes) 0L else pendenteMes,
+                saldoAposPagar = saldo - pendenteMes,
                 onClick = { mostrandoSaldoMes = !mostrandoSaldoMes }
             )
 
@@ -421,6 +446,7 @@ fun HomeScreen(
                             }
                         },
                         onAlternarOculto = viewModel::alternarOculto,
+                        onAlternarPago = viewModel::alternarPago,
                         onBloqueado = {
                             escopo.launch {
                                 snackbarHostState.showSnackbar(
@@ -431,13 +457,23 @@ fun HomeScreen(
                     )
                 }
 
-                LazyColumn(modifier = Modifier.weight(1f)) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f),
+                    // Folga no fim da lista: as últimas transações rolam para
+                    // cima dos FABs (adicionar/transferir) em vez de ficarem
+                    // escondidas embaixo deles
+                    contentPadding = PaddingValues(
+                        bottom = if (contextos.size > 1) 136.dp else 88.dp
+                    )
+                ) {
                     gruposCartao.forEach { grupo ->
                         val expandido = grupo.cartaoUuid in cartoesExpandidos
                         item(key = "cartao-${grupo.cartaoUuid}") {
                             CartaoGrupoCabecalho(
                                 grupo = grupo,
                                 expandido = expandido,
+                                onPagarFatura = { viewModel.pagarFatura(grupo.transacoes) },
                                 onAlternar = {
                                     cartoesExpandidos = if (expandido) {
                                         cartoesExpandidos - grupo.cartaoUuid
