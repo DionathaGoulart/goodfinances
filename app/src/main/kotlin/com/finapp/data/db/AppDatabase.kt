@@ -23,7 +23,7 @@ import com.finapp.data.db.entities.TransacaoRecorrente
         Meta::class,
         ContaAgendada::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -346,6 +346,25 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE UNIQUE INDEX IF NOT EXISTS index_ContaAgendada_uuid " +
                         "ON ContaAgendada (uuid)"
+                )
+            }
+        }
+
+        /**
+         * v11 -> v12: Transacao ganha pago (false = pendente, não conta no
+         * saldo até pagar). Linhas existentes ficam pagas, EXCETO compras no
+         * crédito de fatura ainda não vencida — essas viram pendentes, que é
+         * o estado que passam a ter no novo modelo.
+         */
+        val MIGRACAO_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE Transacao ADD COLUMN pago INTEGER NOT NULL DEFAULT 1"
+                )
+                val hoje = java.time.LocalDate.now().toEpochDay()
+                db.execSQL(
+                    "UPDATE Transacao SET pago = 0 " +
+                        "WHERE cartaoUuid != '' AND deletado = 0 AND data >= $hoje"
                 )
             }
         }

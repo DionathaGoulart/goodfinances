@@ -105,6 +105,17 @@ class HomeViewModel @Inject constructor(
         .flatMapLatest { repository.observarSaldoTotal(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
+    /**
+     * A pagar no mês visualizado (centavos): gastos pendentes - ganhos
+     * pendentes. Saldo projetado = [saldoTotal] - este valor.
+     */
+    val pendenteMes: StateFlow<Long> =
+        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
+            .flatMapLatest { (p, mes) ->
+                repository.observarPendentePeriodo(p, mes.atDay(1), mes.atEndOfMonth())
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
     val ganhosMes: StateFlow<Long> =
         combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
             .flatMapLatest { (p, mes) ->
@@ -261,6 +272,31 @@ class HomeViewModel @Inject constructor(
             // Deleção é lógica: restaurar = limpar o tombstone
             runCatching { repository.restaurarTransacao(transacao) }
                 .onFailure { _mensagens.emit("Erro ao restaurar transação") }
+        }
+    }
+
+    /** Marca a pendência como paga (ou reverte) — aí sim desconta do saldo. */
+    fun alternarPago(transacao: Transacao) {
+        viewModelScope.launch {
+            runCatching { repository.marcarTransacaoPaga(transacao, !transacao.pago) }
+                .onSuccess {
+                    _mensagens.emit(
+                        if (!transacao.pago) "Pagamento confirmado"
+                        else "Marcado como pendente"
+                    )
+                }
+                .onFailure { _mensagens.emit("Erro ao atualizar pagamento") }
+        }
+    }
+
+    /** Paga a fatura do cartão: confirma todas as compras pendentes do grupo. */
+    fun pagarFatura(transacoes: List<Transacao>) {
+        val pendentes = transacoes.filter { !it.pago }
+        if (pendentes.isEmpty()) return
+        viewModelScope.launch {
+            runCatching { repository.pagarTransacoes(pendentes) }
+                .onSuccess { _mensagens.emit("Fatura paga — saldo atualizado") }
+                .onFailure { _mensagens.emit("Erro ao pagar a fatura") }
         }
     }
 

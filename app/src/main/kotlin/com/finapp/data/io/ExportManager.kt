@@ -140,6 +140,8 @@ class ExportManager @Inject constructor(
                             put("transferenciaId", t.transferenciaId)
                         }
                         if (t.notaFiscal.isNotBlank()) put("notaFiscal", t.notaFiscal)
+                        // Pendência (fatura/recorrência não paga) sobrevive ao backup
+                        if (!t.pago) put("pago", false)
                     })
                 }
             })

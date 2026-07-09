@@ -123,14 +123,42 @@ interface TransacaoDao {
 
     // ---------- Agregações ----------
 
-    /** Saldo total em centavos: soma de ganhos menos soma de gastos. */
+    /**
+     * Saldo total em centavos: soma de ganhos menos soma de gastos.
+     * Só o que já foi PAGO conta — pendências (fatura de cartão, recorrência
+     * de gasto ainda não confirmada) não descontam até serem pagas.
+     */
     @Query(
         """
         SELECT COALESCE(SUM(CASE WHEN tipo = 'GANHO' THEN valor ELSE -valor END), 0)
-        FROM Transacao WHERE perfil = :perfil AND deletado = 0
+        FROM Transacao WHERE perfil = :perfil AND deletado = 0 AND pago = 1
         """
     )
     fun observarSaldoTotal(perfil: Perfil): Flow<Long>
+
+    /**
+     * Total PENDENTE (a pagar) do período, em centavos: gastos pendentes
+     * menos ganhos pendentes. É quanto ainda vai sair do saldo quando tudo
+     * do período for pago.
+     */
+    @Query(
+        """
+        SELECT COALESCE(SUM(CASE WHEN tipo = 'GASTO' THEN valor ELSE -valor END), 0)
+        FROM Transacao
+        WHERE perfil = :perfil AND deletado = 0 AND pago = 0
+            AND data BETWEEN :inicio AND :fim
+        """
+    )
+    fun observarPendentePeriodo(perfil: Perfil, inicio: LocalDate, fim: LocalDate): Flow<Long>
+
+    /** Marca um lote como pago/pendente (pagar fatura marca o grupo inteiro). */
+    @Query(
+        """
+        UPDATE Transacao SET pago = :pago, atualizadoEm = :agora
+        WHERE uuid IN (:uuids)
+        """
+    )
+    suspend fun marcarPagas(uuids: List<String>, pago: Boolean, agora: Long)
 
     // Transferências entre baldes (categoria 'Transferência') movem só o
     // SALDO — ficam FORA de receita/despesa/faturamento/estatísticas.

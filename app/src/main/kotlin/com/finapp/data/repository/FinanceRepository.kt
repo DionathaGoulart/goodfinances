@@ -70,6 +70,16 @@ class FinanceRepository @Inject constructor(
     suspend fun ocultarTransacao(transacao: Transacao, oculto: Boolean) =
         transacaoDao.atualizar(transacao.copy(oculto = oculto, atualizadoEm = agora()))
 
+    /** Marca/desmarca como paga: pendente não conta no saldo até pagar. */
+    suspend fun marcarTransacaoPaga(transacao: Transacao, pago: Boolean) =
+        transacaoDao.atualizar(transacao.copy(pago = pago, atualizadoEm = agora()))
+
+    /** Paga a fatura: marca todas as compras do grupo como pagas de uma vez. */
+    suspend fun pagarTransacoes(transacoes: List<Transacao>) {
+        if (transacoes.isEmpty()) return
+        transacaoDao.marcarPagas(transacoes.map { it.uuid }, pago = true, agora = agora())
+    }
+
     /** Desfaz uma deleção lógica (undo do swipe/modal) — o par junto. */
     suspend fun restaurarTransacao(transacao: Transacao) {
         val momento = agora()
@@ -142,6 +152,10 @@ class FinanceRepository @Inject constructor(
 
     fun observarSaldoTotal(perfil: Perfil): Flow<Long> =
         transacaoDao.observarSaldoTotal(perfil)
+
+    /** A pagar no período (gastos pendentes - ganhos pendentes), em centavos. */
+    fun observarPendentePeriodo(perfil: Perfil, inicio: LocalDate, fim: LocalDate): Flow<Long> =
+        transacaoDao.observarPendentePeriodo(perfil, inicio, fim)
 
     fun observarGanhos(perfil: Perfil, inicio: LocalDate, fim: LocalDate): Flow<Long> =
         transacaoDao.observarSomaPorTipo(perfil, TipoTransacao.GANHO, inicio, fim)
@@ -451,7 +465,10 @@ class FinanceRepository @Inject constructor(
                                 autorCasaUid
                             } else {
                                 ""
-                            }
+                            },
+                            // Gasto recorrente tem data para pagar: nasce
+                            // pendente e só desconta quando marcado como pago
+                            pago = recorrente.tipo == TipoTransacao.GANHO
                         )
                     )
                     proxima = when (recorrente.frequencia) {
