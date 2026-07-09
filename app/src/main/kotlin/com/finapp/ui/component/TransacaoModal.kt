@@ -547,9 +547,17 @@ fun TransacaoModal(
                     }
                 }
                 if (parcelas > 1) {
+                    val totalDigitado = digitos.toLongOrNull() ?: 0L
+                    val valorParcela = totalDigitado / parcelas
                     Text(
-                        text = "Serão criados $parcelas lançamentos mensais " +
-                            "com o valor informado (valor de cada parcela).",
+                        text = if (totalDigitado > 0L) {
+                            "Total de ${Formatadores.moeda(totalDigitado)} dividido em " +
+                                "${parcelas}x de ${Formatadores.moeda(valorParcela)} " +
+                                "(um lançamento por mês)."
+                        } else {
+                            "Digite o valor TOTAL da compra — ele será dividido " +
+                                "em $parcelas lançamentos mensais."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
