@@ -2,10 +2,8 @@ package com.finapp.ui
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PieChart
-import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -35,8 +33,6 @@ import com.finapp.ui.screen.AnaliseScreen
 import com.finapp.ui.screen.ConfigScreen
 import com.finapp.ui.screen.HomeScreen
 import com.finapp.ui.screen.PerfilSelecaoScreen
-import com.finapp.ui.screen.PlanejamentoScreen
-import com.finapp.ui.screen.TransacoesScreen
 import com.finapp.viewmodel.PerfilViewModel
 
 /** Destinos da Bottom Navigation. */
@@ -47,8 +43,6 @@ enum class FinanDestination(
 ) {
     HOME("home", "Home", Icons.Filled.Home),
     ANALISE("analise", "Análise", Icons.Filled.PieChart),
-    METAS("metas", "Metas", Icons.Filled.Savings),
-    TRANSACOES("transacoes", "Transações", Icons.AutoMirrored.Filled.ReceiptLong),
     CONFIG("config", "Config", Icons.Filled.Settings)
 }
 
@@ -125,8 +119,6 @@ fun FinanApp(
                 )
             }
             composable(FinanDestination.ANALISE.route) { AnaliseScreen() }
-            composable(FinanDestination.METAS.route) { PlanejamentoScreen() }
-            composable(FinanDestination.TRANSACOES.route) { TransacoesScreen() }
             composable(FinanDestination.CONFIG.route) { ConfigScreen() }
         }
     }
