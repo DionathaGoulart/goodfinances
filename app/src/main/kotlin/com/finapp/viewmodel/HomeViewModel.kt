@@ -139,6 +139,30 @@ class HomeViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Termo digitado na busca (vazio = sem busca). */
+    private val _termoBusca = MutableStateFlow("")
+    val termoBusca: StateFlow<String> = _termoBusca.asStateFlow()
+
+    fun buscar(termo: String) {
+        _termoBusca.value = termo
+    }
+
+    /**
+     * Resultados da busca por descrição/categoria no contexto ativo — TODOS
+     * os meses, não só o exibido (achar "mercado de março" é o caso de uso).
+     * Menos de 2 caracteres não busca (evita varrer tudo a cada tecla).
+     */
+    val resultadosBusca: StateFlow<List<Transacao>> =
+        combine(perfilDados, _termoBusca) { p, termo -> p to termo.trim() }
+            .flatMapLatest { (p, termo) ->
+                if (termo.length < 2) {
+                    flowOf(emptyList())
+                } else {
+                    repository.buscarTransacoes(p, termo)
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Cartões do contexto — nomes/cores dos grupos de crédito da lista. */
     val cartoes: StateFlow<List<Cartao>> = perfilDados
         .flatMapLatest { repository.observarCartoes(it) }

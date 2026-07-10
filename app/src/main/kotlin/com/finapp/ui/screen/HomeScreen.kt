@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -34,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -51,6 +53,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -124,6 +128,8 @@ fun HomeScreen(
     val mostrandoMembros = perfilDados == Perfil.CASA && visaoMembros
     // Seletor de mês/ano (navegação do histórico)
     var mesPickerAberto by remember { mutableStateOf(false) }
+    // Busca por descrição/categoria (lupa na barra do mês)
+    var buscando by rememberSaveable { mutableStateOf(false) }
 
     // Estado da lista do histórico
     val listState = rememberLazyListState()
@@ -254,15 +260,28 @@ fun HomeScreen(
                 return@Column
             }
 
-            // Navegação de mês: setas + toque no rótulo abre o seletor de mês/ano
-            BarraMes(
-                mes = mesSelecionado,
-                ehMesAtual = ehMesAtual,
-                onAnterior = viewModel::mesAnterior,
-                onProximo = viewModel::mesProximo,
-                onAbrirPicker = { mesPickerAberto = true },
-                onHoje = viewModel::irParaMesAtual
-            )
+            // Navegação de mês (ou campo de busca, quando a lupa está ativa)
+            if (buscando) {
+                val termoBusca by viewModel.termoBusca.collectAsStateWithLifecycle()
+                BarraBusca(
+                    termo = termoBusca,
+                    onTermo = viewModel::buscar,
+                    onFechar = {
+                        buscando = false
+                        viewModel.buscar("")
+                    }
+                )
+            } else {
+                BarraMes(
+                    mes = mesSelecionado,
+                    ehMesAtual = ehMesAtual,
+                    onAnterior = viewModel::mesAnterior,
+                    onProximo = viewModel::mesProximo,
+                    onAbrirPicker = { mesPickerAberto = true },
+                    onHoje = viewModel::irParaMesAtual,
+                    onBuscar = { buscando = true }
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -329,6 +348,19 @@ fun HomeScreen(
             val corItemCartao = MaterialTheme.colorScheme.surface
             // Avulsas agrupadas por dia (a query já vem ordenada por data)
             val avulsasPorDia = remember(avulsas) { avulsas.groupBy { it.data } }
+
+            // Modo busca: resultados de TODOS os meses no lugar do dashboard
+            if (buscando) {
+                val resultados by viewModel.resultadosBusca.collectAsStateWithLifecycle()
+                val termoBusca by viewModel.termoBusca.collectAsStateWithLifecycle()
+                ListaBusca(
+                    resultados = resultados,
+                    termo = termoBusca,
+                    hoje = dataAtual,
+                    linha = linhaTransacao
+                )
+                return@Column
+            }
 
             // Cards do dashboard + histórico num único scroll: em paisagem ou
             // com fonte grande a lista não fica espremida sob cards fixos
@@ -633,7 +665,8 @@ private fun BarraMes(
     onAnterior: () -> Unit,
     onProximo: () -> Unit,
     onAbrirPicker: () -> Unit,
-    onHoje: () -> Unit
+    onHoje: () -> Unit,
+    onBuscar: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -676,6 +709,104 @@ private fun BarraMes(
                 imageVector = Icons.Filled.ChevronRight,
                 contentDescription = "Próximo mês"
             )
+        }
+        IconButton(onClick = onBuscar) {
+            Icon(
+                imageVector = Icons.Filled.Search,
+                contentDescription = "Buscar transações"
+            )
+        }
+    }
+}
+
+/**
+ * Campo de busca que substitui a barra do mês: foca sozinho ao abrir;
+ * o X limpa e volta para a navegação normal.
+ */
+@Composable
+private fun BarraBusca(
+    termo: String,
+    onTermo: (String) -> Unit,
+    onFechar: () -> Unit
+) {
+    val foco = remember { FocusRequester() }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedTextField(
+            value = termo,
+            onValueChange = onTermo,
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(foco),
+            placeholder = { Text("Buscar por descrição ou categoria") },
+            leadingIcon = {
+                Icon(imageVector = Icons.Filled.Search, contentDescription = null)
+            },
+            singleLine = true
+        )
+        IconButton(onClick = onFechar) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = "Fechar busca"
+            )
+        }
+    }
+    LaunchedEffect(Unit) { foco.requestFocus() }
+}
+
+/**
+ * Resultados da busca, agrupados por dia como o histórico. [linha] reusa a
+ * mesma TransacaoLinha da lista principal (editar/menu funcionam igual).
+ */
+@Composable
+private fun ListaBusca(
+    resultados: List<Transacao>,
+    termo: String,
+    hoje: java.time.LocalDate,
+    linha: @Composable (Transacao, Color?) -> Unit
+) {
+    val porDia = remember(resultados) { resultados.groupBy { it.data } }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 96.dp)
+    ) {
+        when {
+            termo.trim().length < 2 -> item(key = "dica") {
+                Text(
+                    text = "Digite pelo menos 2 letras para buscar em todos os meses.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 24.dp)
+                )
+            }
+            resultados.isEmpty() -> item(key = "sem-resultado") {
+                Text(
+                    text = "Nada encontrado para \"${termo.trim()}\".",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 24.dp)
+                )
+            }
+            else -> {
+                item(key = "total") {
+                    Text(
+                        text = "${resultados.size} lançamento(s) encontrado(s)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                porDia.forEach { (dia, transacoesDoDia) ->
+                    item(key = "busca-dia-${dia.toEpochDay()}") {
+                        CabecalhoDia(dia = dia, hoje = hoje)
+                    }
+                    items(transacoesDoDia, key = { it.id }) { transacao ->
+                        linha(transacao, null)
+                    }
+                }
+            }
         }
     }
 }

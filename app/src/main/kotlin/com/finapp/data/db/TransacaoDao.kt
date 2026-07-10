@@ -128,7 +128,9 @@ interface TransacaoDao {
     @Query(
         """
         SELECT * FROM Transacao
-        WHERE perfil = :perfil AND deletado = 0 AND descricao LIKE '%' || :termo || '%'
+        WHERE perfil = :perfil AND deletado = 0
+            AND (descricao LIKE '%' || :termo || '%'
+                OR categoria LIKE '%' || :termo || '%')
         ORDER BY data DESC, id DESC
         """
     )
