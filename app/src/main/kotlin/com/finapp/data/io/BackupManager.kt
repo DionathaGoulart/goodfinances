@@ -71,14 +71,18 @@ class BackupManager @Inject constructor(
 
         Perfil.BALDES_DADOS.forEach { perfil ->
             val transacoes = repository.listarTransacoes(perfil)
-            if (transacoes.isEmpty()) return@forEach
+            val metas = repository.listarMetas(perfil)
+            val contas = repository.listarContas(perfil)
+            // Pula só o balde realmente vazio: perfil sem transação ainda
+            // pode ter metas/contas que merecem backup
+            if (transacoes.isEmpty() && metas.isEmpty() && contas.isEmpty()) return@forEach
 
             val json = exportManager.gerarJsonTexto(
                 perfil = perfil,
                 transacoes = transacoes,
                 categorias = repository.listarCategorias(perfil),
-                metas = repository.listarMetas(perfil),
-                contas = repository.listarContas(perfil)
+                metas = metas,
+                contas = contas
             )
             diretorio.resolve("${prefixo(perfil)}$timestamp.json")
                 .writeText(json, Charsets.UTF_8)
@@ -145,8 +149,10 @@ class BackupManager @Inject constructor(
     /** Sobe o JSON para o doc privado do usuário. Fire-and-forget (fila offline). */
     private fun subirParaNuvem(perfil: Perfil, json: String) {
         val uid = auth.currentUser?.uid ?: return
-        // Documento do Firestore aguenta 1 MB — acima disso, fica só o local
-        if (json.length > LIMITE_NUVEM_BYTES) {
+        // Documento do Firestore aguenta 1 MB — acima disso, fica só o local.
+        // O limite é em BYTES: JSON pt-BR tem acentos multi-byte em UTF-8,
+        // então `length` (chars) subestimaria o tamanho real.
+        if (json.toByteArray(Charsets.UTF_8).size > LIMITE_NUVEM_BYTES) {
             android.util.Log.w(
                 "BackupManager",
                 "Backup de ${perfil.name} passou de $LIMITE_NUVEM_BYTES bytes — só local"

@@ -66,6 +66,25 @@ class ParserImportacaoTest {
     }
 
     @Test
+    fun `ponto sem virgula agrupando de 3 em 3 e separador de milhar`() {
+        val csv = """
+            15/06/2024,A,"1.234",ganho,X
+            15/06/2024,B,"1.234.567",ganho,X
+            15/06/2024,C,1.50,gasto,X
+            15/06/2024,D,12.345,gasto,X
+        """.trimIndent()
+
+        val dados = parser.lerTexto(csv, perfil)
+        // "1.234" é R$ 1.234,00 (milhar BR), não R$ 1,23
+        assertEquals(123_400L, dados.transacoes[0].valor)
+        assertEquals(123_456_700L, dados.transacoes[1].valor)
+        // Grupo de 2 dígitos após o ponto continua decimal
+        assertEquals(150L, dados.transacoes[2].valor)
+        // Grupo de 3 após 2 dígitos: milhar ("12.345" = R$ 12.345,00)
+        assertEquals(1_234_500L, dados.transacoes[3].valor)
+    }
+
+    @Test
     fun `csv com data invalida lanca erro com numero da linha`() {
         val erro = assertThrows(IllegalArgumentException::class.java) {
             parser.lerTexto("99/99/2024,X,10.00,gasto,Y", perfil)
@@ -140,6 +159,28 @@ class ParserImportacaoTest {
     fun `json preserva centavos sem erro de arredondamento`() {
         val json = """{"transacoes":[{"data":"2024-01-01","valor":0.29,"tipo":"gasto"}]}"""
         assertEquals(29L, parser.lerTexto(json, perfil).transacoes[0].valor)
+    }
+
+    @Test
+    fun `json le vinculo de cartao e oculto do backup`() {
+        val json = """
+            {"transacoes":[
+              {"data":"2024-07-10","valor":50.0,"tipo":"gasto",
+               "cartaoUuid":"abc-123","dataCompra":"2024-06-28","oculto":true,"pago":false},
+              {"data":"2024-07-11","valor":10.0,"tipo":"gasto"}
+            ]}
+        """.trimIndent()
+
+        val transacoes = parser.lerTexto(json, perfil).transacoes
+
+        // Compra no crédito: mantém cartão, dia da compra e privacidade
+        assertEquals("abc-123", transacoes[0].cartaoUuid)
+        assertEquals("2024-06-28", transacoes[0].dataCompra.toString())
+        assertEquals(true, transacoes[0].oculto)
+        // Ausentes = padrão de transação comum
+        assertEquals("", transacoes[1].cartaoUuid)
+        assertEquals(null, transacoes[1].dataCompra)
+        assertEquals(false, transacoes[1].oculto)
     }
 
     @Test
