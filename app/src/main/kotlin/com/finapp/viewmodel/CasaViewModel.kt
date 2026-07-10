@@ -52,8 +52,10 @@ class CasaViewModel @Inject constructor(
     }
 
     fun sairDaConta() {
-        casaManager.sairDaConta()
-        emitir("Desconectado")
+        executar {
+            casaManager.sairDaConta()
+            emitir("Desconectado")
+        }
     }
 
     fun criarCasa() {
