@@ -569,11 +569,44 @@ class ConfigViewModel @Inject constructor(
     private val _previaImportacao = MutableStateFlow<DadosImportados?>(null)
     val previaImportacao: StateFlow<DadosImportados?> = _previaImportacao.asStateFlow()
 
+    /** Período aplicado a todos os exports (o caso real: mandar o mês para o contador). */
+    enum class PeriodoExport(val rotulo: String) {
+        TUDO("Tudo"),
+        ESTE_MES("Este mês"),
+        MES_PASSADO("Mês passado"),
+        ESTE_ANO("Este ano")
+    }
+
+    private val _periodoExport = MutableStateFlow(PeriodoExport.TUDO)
+    val periodoExport: StateFlow<PeriodoExport> = _periodoExport.asStateFlow()
+
+    fun definirPeriodoExport(periodo: PeriodoExport) {
+        _periodoExport.value = periodo
+    }
+
+    /** Transações do contexto ativo recortadas pelo período de export. */
+    private suspend fun transacoesParaExport(): List<com.finapp.data.db.entities.Transacao> {
+        val todas = repository.listarTransacoes(perfilDados.value)
+        val hoje = LocalDate.now()
+        val (inicio, fim) = when (_periodoExport.value) {
+            PeriodoExport.TUDO -> return todas
+            PeriodoExport.ESTE_MES ->
+                hoje.withDayOfMonth(1) to hoje.withDayOfMonth(hoje.lengthOfMonth())
+            PeriodoExport.MES_PASSADO -> {
+                val mes = hoje.minusMonths(1)
+                mes.withDayOfMonth(1) to mes.withDayOfMonth(mes.lengthOfMonth())
+            }
+            PeriodoExport.ESTE_ANO ->
+                hoje.withDayOfYear(1) to hoje.withDayOfYear(hoje.lengthOfYear())
+        }
+        return todas.filter { !it.data.isBefore(inicio) && !it.data.isAfter(fim) }
+    }
+
     fun exportarCsv(uri: Uri?) {
         if (uri == null) return
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                val transacoes = repository.listarTransacoes(perfilDados.value)
+                val transacoes = transacoesParaExport()
                 exportManager.exportarCsv(uri, transacoes)
                 transacoes.size
             }
@@ -587,7 +620,7 @@ class ConfigViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 val perfil = perfilDados.value
-                val transacoes = repository.listarTransacoes(perfil)
+                val transacoes = transacoesParaExport()
                 exportManager.exportarJson(
                     uri, perfil, transacoes, repository.listarCategorias(perfil)
                 )
@@ -602,8 +635,7 @@ class ConfigViewModel @Inject constructor(
         if (uri == null) return
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                val perfil = perfilDados.value
-                exportManager.exportarPdf(uri, perfil, repository.listarTransacoes(perfil))
+                exportManager.exportarPdf(uri, perfilDados.value, transacoesParaExport())
             }
                 .onSuccess { emitir("Relatório PDF exportado") }
                 .onFailure { emitir("Erro ao exportar PDF") }
@@ -618,7 +650,7 @@ class ConfigViewModel @Inject constructor(
         if (uri == null) return
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                val transacoes = repository.listarTransacoes(perfilDados.value)
+                val transacoes = transacoesParaExport()
                 exportManager.exportarZip(uri, transacoes)
                 transacoes.count { it.notaFiscal.isNotBlank() }
             }

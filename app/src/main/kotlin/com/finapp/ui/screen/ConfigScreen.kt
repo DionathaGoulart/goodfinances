@@ -730,6 +730,25 @@ fun ConfigScreen(
                     ActivityResultContracts.CreateDocument("application/zip")
                 ) { viewModel.exportarZip(it) }
 
+                // Recorte de período dos exports (mês para o contador / IR)
+                val periodoExport by viewModel.periodoExport.collectAsStateWithLifecycle()
+                Text(
+                    text = "Período dos exports",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ConfigViewModel.PeriodoExport.entries.forEach { periodo ->
+                        FilterChip(
+                            selected = periodoExport == periodo,
+                            onClick = { viewModel.definirPeriodoExport(periodo) },
+                            label = { Text(periodo.rotulo) }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+
                 ItemDados(
                     icone = Icons.Filled.FileDownload,
                     titulo = "Exportar para CSV",
