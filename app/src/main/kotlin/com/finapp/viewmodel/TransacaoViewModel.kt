@@ -145,6 +145,9 @@ class TransacaoViewModel @Inject constructor(
                             descricao = descricao.trim(),
                             frequencia = Frequencia.MENSAL,
                             proximoLancamento = data.plusMonths(1),
+                            // Dia da transação original: plusMonths pode ter
+                            // truncado (31/01 -> 28/02) e perderia a intenção
+                            diaMensal = data.dayOfMonth,
                             perfil = perfil.value
                         )
                     )
@@ -287,8 +290,24 @@ class TransacaoViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            runCatching { repository.atualizarTransacao(transacao) }
-                .onSuccess { emitir("Transação atualizada") }
+            runCatching {
+                if (transacao.transferenciaId.isNotBlank()) {
+                    // Perna de transferência: espelha valor/data na outra
+                    // perna — editar um lado só dessincronizaria os contextos
+                    repository.atualizarTransferencia(transacao)
+                } else {
+                    repository.atualizarTransacao(transacao)
+                }
+            }
+                .onSuccess {
+                    emitir(
+                        if (transacao.transferenciaId.isNotBlank()) {
+                            "Transferência atualizada nos dois contextos"
+                        } else {
+                            "Transação atualizada"
+                        }
+                    )
+                }
                 .onFailure { emitir("Erro ao atualizar transação") }
         }
     }

@@ -25,6 +25,13 @@ data class TransacaoRecorrente(
     val frequencia: Frequencia,
     /** Data em que a próxima transação deve ser lançada automaticamente. */
     val proximoLancamento: LocalDate,
+    /**
+     * Dia do mês desejado (recorrência MENSAL): preserva a intenção quando o
+     * mês é curto — dia 31 lança em 28/02 e VOLTA para 31/03 (sem esse campo,
+     * o plusMonths encadeado ficaria preso no dia 28 para sempre).
+     * 0 = derivar do próprio [proximoLancamento].
+     */
+    val diaMensal: Int = 0,
     val perfil: Perfil,
     val ativa: Boolean = true,
     /** Última modificação (epoch millis) — resolução de conflitos no sync. */
