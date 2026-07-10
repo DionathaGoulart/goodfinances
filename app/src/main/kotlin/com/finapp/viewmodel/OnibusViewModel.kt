@@ -64,32 +64,58 @@ class OnibusViewModel @Inject constructor(
     }
 
     /**
-     * Recarga: soma [centavos] no saldo do cartão e lança um GASTO de verdade
-     * (categoria Transporte, descrição "Ônibus") no [perfil] escolhido.
+     * Recarga: soma [centavos] no saldo do cartão. Com [registrarGasto], lança
+     * também um GASTO de verdade (categoria Transporte, "Ônibus") no [perfil]
+     * escolhido; sem ele, só ajusta o saldo (carga feita fora do app / já tinha).
      */
-    fun recarregar(centavos: Long, perfil: Perfil) {
+    fun recarregar(centavos: Long, perfil: Perfil, registrarGasto: Boolean) {
         if (centavos <= 0L) {
             emitir("Informe um valor de recarga maior que zero")
             return
         }
         viewModelScope.launch {
             runCatching {
-                repository.inserirTransacao(
-                    Transacao(
-                        valor = centavos,
-                        tipo = TipoTransacao.GASTO,
-                        categoria = CATEGORIA_TRANSPORTE,
-                        descricao = "Ônibus",
-                        data = LocalDate.now(),
-                        perfil = perfil,
-                        pago = true
+                if (registrarGasto) {
+                    repository.inserirTransacao(
+                        Transacao(
+                            valor = centavos,
+                            tipo = TipoTransacao.GASTO,
+                            categoria = CATEGORIA_TRANSPORTE,
+                            descricao = "Ônibus",
+                            data = LocalDate.now(),
+                            perfil = perfil,
+                            pago = true
+                        )
                     )
-                )
+                }
                 onibusManager.adicionarSaldo(centavos)
             }
-                .onSuccess { emitir("Recarga lançada em ${perfil.rotulo}") }
+                .onSuccess {
+                    emitir(
+                        if (registrarGasto) "Recarga lançada em ${perfil.rotulo}"
+                        else "Saldo adicionado (sem gasto)"
+                    )
+                }
                 .onFailure { emitir("Erro ao lançar a recarga") }
         }
+    }
+
+    /**
+     * Uso avulso: desconta [passagens] do saldo sem gerar gasto (o dinheiro já
+     * saiu na recarga). Cobre dias fora da rotina — trabalhar num dia extra ou
+     * gastar só uma passagem.
+     */
+    fun registrarUso(passagens: Int) {
+        val atual = config.value
+        if (atual.valorPassagem <= 0L) {
+            emitir("Defina o valor da passagem primeiro")
+            return
+        }
+        onibusManager.definirSaldo(atual.saldoAtual - passagens.toLong() * atual.valorPassagem)
+        emitir(
+            if (passagens == 1) "Registrado: 1 passagem usada"
+            else "Registrado: $passagens passagens usadas"
+        )
     }
 
     private fun emitir(mensagem: String) {

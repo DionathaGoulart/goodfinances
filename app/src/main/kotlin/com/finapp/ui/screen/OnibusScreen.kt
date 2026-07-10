@@ -1,5 +1,6 @@
 package com.finapp.ui.screen
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -17,8 +18,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -142,7 +145,36 @@ fun OnibusScreen(viewModel: OnibusViewModel = hiltViewModel()) {
                     rotulo = "Saldo atual no cartão",
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Editar aqui não gera gasto — informe o saldo que já tem no cartão.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Usei o ônibus (fora da rotina)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { viewModel.registrarUso(1) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("−1 passagem")
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.registrarUso(2) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Ida e volta")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
                 Projecao(projecao = projecao, configurado = config.configurado)
             }
 
@@ -163,8 +195,8 @@ fun OnibusScreen(viewModel: OnibusViewModel = hiltViewModel()) {
         RecargaDialog(
             contextos = contextos,
             perfilAtual = perfilDados,
-            onConfirmar = { valor, perfil ->
-                viewModel.recarregar(valor, perfil)
+            onConfirmar = { valor, perfil, registrarGasto ->
+                viewModel.recarregar(valor, perfil, registrarGasto)
                 recargaAberta = false
             },
             onFechar = { recargaAberta = false }
@@ -219,16 +251,17 @@ private fun Projecao(projecao: ProjecaoOnibus, configurado: Boolean) {
     }
 }
 
-/** Dialog de recarga: valor + para qual contexto vai o gasto. */
+/** Dialog de recarga: valor, se vira gasto e para qual contexto vai. */
 @Composable
 private fun RecargaDialog(
     contextos: List<Perfil>,
     perfilAtual: Perfil,
-    onConfirmar: (Long, Perfil) -> Unit,
+    onConfirmar: (Long, Perfil, Boolean) -> Unit,
     onFechar: () -> Unit
 ) {
     var valor by remember { mutableStateOf(0L) }
     var perfil by remember { mutableStateOf(perfilAtual) }
+    var registrarGasto by remember { mutableStateOf(true) }
     AlertDialog(
         onDismissRequest = onFechar,
         title = { Text("Recarregar ônibus") },
@@ -240,8 +273,27 @@ private fun RecargaDialog(
                     rotulo = "Valor da recarga",
                     modifier = Modifier.fillMaxWidth()
                 )
-                if (contextos.size > 1) {
-                    Spacer(modifier = Modifier.height(16.dp))
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { registrarGasto = !registrarGasto },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = registrarGasto,
+                        onCheckedChange = { registrarGasto = it }
+                    )
+                    Text(
+                        text = "Registrar como gasto",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                if (registrarGasto && contextos.size > 1) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Lançar o gasto em",
                         style = MaterialTheme.typography.bodyMedium,
@@ -260,14 +312,18 @@ private fun RecargaDialog(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Gera um gasto em Transporte (Ônibus) e soma no saldo do cartão.",
+                    text = if (registrarGasto) {
+                        "Gera um gasto em Transporte (Ônibus) e soma no saldo do cartão."
+                    } else {
+                        "Só soma no saldo do cartão, sem lançar gasto (ex.: já tinha carga)."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirmar(valor, perfil) }) {
+            TextButton(onClick = { onConfirmar(valor, perfil, registrarGasto) }) {
                 Text("Recarregar")
             }
         },
