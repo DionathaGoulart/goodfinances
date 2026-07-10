@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -47,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -68,16 +70,16 @@ import com.finapp.ui.screen.PerfilSelecaoScreen
 import com.finapp.viewmodel.PerfilViewModel
 import com.finapp.viewmodel.TransacaoViewModel
 
-/** Destinos da Bottom Navigation (só ícones — barra compacta). */
+/** Destinos da Bottom Navigation (ícone + rótulo curto — barra compacta). */
 enum class FinanDestination(
     val route: String,
     val label: String,
     val icon: ImageVector
 ) {
-    HOME("home", "Home", Icons.Filled.Home),
+    HOME("home", "Início", Icons.Filled.Home),
     ANALISE("analise", "Análise", Icons.Filled.PieChart),
     ONIBUS("onibus", "Ônibus", Icons.Filled.DirectionsBus),
-    CONFIG("config", "Config", Icons.Filled.Settings)
+    CONFIG("config", "Ajustes", Icons.Filled.Settings)
 }
 
 /** [abrirLancamento] = chegada pelo widget: abre direto o modal de nova transação. */
@@ -213,7 +215,7 @@ fun FinanApp(
     }
 }
 
-/** Barra inferior compacta (só ícones) com o botão + central de ações rápidas. */
+/** Barra inferior compacta (ícone + rótulo) com o botão + central de ações rápidas. */
 @Composable
 private fun BarraInferior(
     navController: NavHostController,
@@ -250,7 +252,7 @@ private fun BarraInferior(
     }
 }
 
-/** Ícone de navegação (sem rótulo) que troca de aba preservando estado. */
+/** Ícone + rótulo de navegação que troca de aba preservando estado. */
 @Composable
 private fun IconeNav(
     destino: FinanDestination,
@@ -262,31 +264,45 @@ private fun IconeNav(
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Box(
+    Column(
         modifier = Modifier
-            .size(48.dp)
-            .clip(CircleShape)
+            .clip(RoundedCornerShape(16.dp))
             .clickable {
                 navController.navigate(destino.route) {
                     popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                     launchSingleTop = true
                     restoreState = true
                 }
-            },
-        contentAlignment = Alignment.Center
+            }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Pill atrás do ícone ativo: affordance de "você está aqui"
-        if (selecionado) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(cor.copy(alpha = 0.15f), CircleShape)
+        Box(
+            modifier = Modifier.size(width = 40.dp, height = 26.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            // Pill atrás do ícone ativo: affordance de "você está aqui"
+            if (selecionado) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(cor.copy(alpha = 0.15f), CircleShape)
+                )
+            }
+            Icon(
+                imageVector = destino.icon,
+                // O rótulo abaixo já nomeia o destino para acessibilidade
+                contentDescription = null,
+                tint = cor,
+                modifier = Modifier.size(20.dp)
             )
         }
-        Icon(
-            imageVector = destino.icon,
-            contentDescription = destino.label,
-            tint = cor
+        Text(
+            text = destino.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = cor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

@@ -268,161 +268,178 @@ fun HomeScreen(
 
             // Fechamento do mês anterior (primeiros dias do mês, dispensável)
             val resumoMes by viewModel.resumoMesAnterior.collectAsStateWithLifecycle()
-            resumoMes?.let { resumo ->
-                ResumoMesCard(resumo = resumo, onDispensar = viewModel::dispensarResumo)
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
             // Contexto de empresa usa vocabulário próprio: Receita / Despesa + Lucro
             val cnpj = perfilDados.ehEmpresa
-            SaldoCard(
-                saldoTotal = saldo,
-                ganhosMes = ganhos,
-                gastosMes = gastos,
-                // Pendências do mês (fatura, recorrências): quanto ainda vai
-                // sair e quanto sobra depois de pagar tudo
-                aPagarMes = pendenteMes,
-                saldoAposPagar = saldo - pendenteMes,
-                // Na empresa os cards Receita/Despesa + Lucro abaixo já detalham
-                mostrarResumoMes = !cnpj
-            )
 
-            if (cnpj) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    ResumoCard(
-                        tipo = TipoTransacao.GANHO,
-                        valor = ganhos,
-                        modifier = Modifier.weight(1f),
-                        rotuloCustom = "Receita"
-                    )
-                    ResumoCard(
-                        tipo = TipoTransacao.GASTO,
-                        valor = gastos,
-                        modifier = Modifier.weight(1f),
-                        rotuloCustom = "Despesa"
-                    )
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                LucroCard(lucro = ganhos - gastos)
+            // Débito/dinheiro ficam soltos; compras no crédito viram um
+            // grupo expansível por cartão (toque no cabeçalho abre/fecha)
+            val cartoes by viewModel.cartoes.collectAsStateWithLifecycle()
+            val (gruposCartao, avulsas) = remember(transacoesDoMes, cartoes) {
+                agruparPorCartao(transacoesDoMes, cartoes)
+            }
+            var cartoesExpandidos by rememberSaveable {
+                mutableStateOf(listOf<String>())
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            // Cor da categoria de cada linha (reconhecimento visual rápido)
+            val coresCategorias by viewModel.coresCategorias.collectAsStateWithLifecycle()
+            val linhaTransacao: @Composable (Transacao, Color?) -> Unit = { transacao, corFundo ->
+                val podeEditar = viewModel.podeEditar(transacao)
+                val corCategoria = coresCategorias[transacao.categoria]?.let { hex ->
+                    runCatching { Color(hex.toColorInt()) }.getOrNull()
+                }
+                TransacaoLinha(
+                    transacao = transacao,
+                    podeEditar = podeEditar,
+                    podeEsconder = podeEsconder,
+                    corFundo = corFundo,
+                    corCategoria = corCategoria,
+                    // A data vem do cabeçalho do dia (ou do card do cartão)
+                    mostrarData = false,
+                    onEditar = {
+                        transacaoEmEdicao = it
+                        modalAberto = true
+                    },
+                    onExcluir = { deletada ->
+                        viewModel.deletarTransacao(deletada)
+                        escopo.launch {
+                            val resultado = snackbarHostState.showSnackbar(
+                                message = "Transação deletada",
+                                actionLabel = "Desfazer",
+                                duration = SnackbarDuration.Short
+                            )
+                            if (resultado == SnackbarResult.ActionPerformed) {
+                                viewModel.restaurarTransacao(deletada)
+                            }
+                        }
+                    },
+                    onAlternarOculto = viewModel::alternarOculto,
+                    onAlternarPago = viewModel::alternarPago,
+                    onBloqueado = {
+                        escopo.launch {
+                            snackbarHostState.showSnackbar(
+                                "Só quem lançou pode editar esta transação"
+                            )
+                        }
+                    }
+                )
+            }
 
-            Text(
-                text = if (ehMesAtual) "TRANSAÇÕES DO MÊS"
-                else "TRANSAÇÕES · ${rotuloMes(mesSelecionado).uppercase(Formatadores.LOCALE_BR)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // Fundo dos itens dentro do card do cartão (integra à moldura)
+            val corItemCartao = MaterialTheme.colorScheme.surface
+            // Avulsas agrupadas por dia (a query já vem ordenada por data)
+            val avulsasPorDia = remember(avulsas) { avulsas.groupBy { it.data } }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (transacoesDoMes.isEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+            // Cards do dashboard + histórico num único scroll: em paisagem ou
+            // com fonte grande a lista não fica espremida sob cards fixos
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f),
+                // Folga no fim da lista para as últimas transações rolarem
+                // acima da barra inferior (com o botão + central)
+                contentPadding = PaddingValues(bottom = 96.dp)
+            ) {
+                resumoMes?.let { resumo ->
+                    item(key = "resumo-mes-anterior") {
+                        ResumoMesCard(
+                            resumo = resumo,
+                            onDispensar = viewModel::dispensarResumo
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+                item(key = "saldo") {
+                    SaldoCard(
+                        saldoTotal = saldo,
+                        ganhosMes = ganhos,
+                        gastosMes = gastos,
+                        // Pendências do mês (fatura, recorrências): quanto ainda vai
+                        // sair e quanto sobra depois de pagar tudo
+                        aPagarMes = pendenteMes,
+                        saldoAposPagar = saldo - pendenteMes,
+                        // Na empresa os cards Receita/Despesa + Lucro abaixo já detalham
+                        mostrarResumoMes = !cnpj,
+                        // O resumo é do mês exibido, não necessariamente o atual
+                        rotuloMes = if (ehMesAtual) "Este mês" else {
+                            "Em " + mesSelecionado.month
+                                .getDisplayName(TextStyle.FULL, Formatadores.LOCALE_BR)
+                                .replaceFirstChar { it.uppercase(Formatadores.LOCALE_BR) }
+                        }
+                    )
+                }
+                if (cnpj) {
+                    item(key = "cards-cnpj") {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            ResumoCard(
+                                tipo = TipoTransacao.GANHO,
+                                valor = ganhos,
+                                modifier = Modifier.weight(1f),
+                                rotuloCustom = "Receita"
+                            )
+                            ResumoCard(
+                                tipo = TipoTransacao.GASTO,
+                                valor = gastos,
+                                modifier = Modifier.weight(1f),
+                                rotuloCustom = "Despesa"
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        LucroCard(lucro = ganhos - gastos)
+                    }
+                }
+                item(key = "titulo-transacoes") {
+                    Spacer(modifier = Modifier.height(24.dp))
                     Text(
-                        text = if (ehMesAtual) "Nenhuma transação ainda"
-                        else "Nenhuma transação em ${rotuloMes(mesSelecionado)}",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = if (ehMesAtual) "TRANSAÇÕES DO MÊS"
+                        else "TRANSAÇÕES · ${rotuloMes(mesSelecionado).uppercase(Formatadores.LOCALE_BR)}",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (ehMesAtual) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(
-                            onClick = {
-                                transacaoEmEdicao = null
-                                modalAberto = true
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                if (transacoesDoMes.isEmpty()) {
+                    item(key = "vazio") {
+                        Column(
+                            modifier = Modifier
+                                .fillParentMaxWidth()
+                                .padding(vertical = 48.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.Add,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
+                            Text(
+                                text = if (ehMesAtual) "Nenhuma transação ainda"
+                                else "Nenhuma transação em ${rotuloMes(mesSelecionado)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Adicionar transação")
-                        }
-                    }
-                }
-            } else {
-                // Débito/dinheiro ficam soltos; compras no crédito viram um
-                // grupo expansível por cartão (toque no cabeçalho abre/fecha)
-                val cartoes by viewModel.cartoes.collectAsStateWithLifecycle()
-                val (gruposCartao, avulsas) = remember(transacoesDoMes, cartoes) {
-                    agruparPorCartao(transacoesDoMes, cartoes)
-                }
-                var cartoesExpandidos by rememberSaveable {
-                    mutableStateOf(listOf<String>())
-                }
-
-                // Cor da categoria de cada linha (reconhecimento visual rápido)
-                val coresCategorias by viewModel.coresCategorias.collectAsStateWithLifecycle()
-                val linhaTransacao: @Composable (Transacao, Color?) -> Unit = { transacao, corFundo ->
-                    val podeEditar = viewModel.podeEditar(transacao)
-                    val corCategoria = coresCategorias[transacao.categoria]?.let { hex ->
-                        runCatching { Color(hex.toColorInt()) }.getOrNull()
-                    }
-                    TransacaoLinha(
-                        transacao = transacao,
-                        podeEditar = podeEditar,
-                        podeEsconder = podeEsconder,
-                        corFundo = corFundo,
-                        corCategoria = corCategoria,
-                        // A data vem do cabeçalho do dia (ou do card do cartão)
-                        mostrarData = false,
-                        onEditar = {
-                            transacaoEmEdicao = it
-                            modalAberto = true
-                        },
-                        onExcluir = { deletada ->
-                            viewModel.deletarTransacao(deletada)
-                            escopo.launch {
-                                val resultado = snackbarHostState.showSnackbar(
-                                    message = "Transação deletada",
-                                    actionLabel = "Desfazer",
-                                    duration = SnackbarDuration.Short
-                                )
-                                if (resultado == SnackbarResult.ActionPerformed) {
-                                    viewModel.restaurarTransacao(deletada)
+                            if (ehMesAtual) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = {
+                                        transacaoEmEdicao = null
+                                        modalAberto = true
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Add,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Adicionar transação")
                                 }
                             }
-                        },
-                        onAlternarOculto = viewModel::alternarOculto,
-                        onAlternarPago = viewModel::alternarPago,
-                        onBloqueado = {
-                            escopo.launch {
-                                snackbarHostState.showSnackbar(
-                                    "Só quem lançou pode editar esta transação"
-                                )
-                            }
                         }
-                    )
-                }
-
-                // Fundo dos itens dentro do card do cartão (integra à moldura)
-                val corItemCartao = MaterialTheme.colorScheme.surface
-                // Avulsas agrupadas por dia (a query já vem ordenada por data)
-                val avulsasPorDia = remember(avulsas) { avulsas.groupBy { it.data } }
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f),
-                    // Folga no fim da lista para as últimas transações rolarem
-                    // acima da barra inferior (com o botão + central)
-                    contentPadding = PaddingValues(bottom = 96.dp)
-                ) {
+                    }
+                } else {
                     gruposCartao.forEach { grupo ->
                         val expandido = grupo.cartaoUuid in cartoesExpandidos
                         // O card inteiro (cabeçalho + compras) num único item

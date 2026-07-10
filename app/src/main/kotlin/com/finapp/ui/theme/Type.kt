@@ -4,6 +4,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 
 // Dígitos tabulares: todos com a mesma largura, para valores alinharem
@@ -54,14 +55,33 @@ val Typography = Typography(
     )
 )
 
-/** Multiplica os tamanhos de fonte pelo fator escolhido em Aparência. */
+/** Escala um estilo preservando o resto (peso, fontFeatureSettings etc.). */
+private fun TextStyle.escalar(fator: Float): TextStyle = copy(
+    fontSize = fontSize * fator,
+    lineHeight = if (lineHeight.isSpecified) lineHeight * fator else lineHeight
+)
+
+/**
+ * Multiplica os tamanhos de fonte pelo fator escolhido em Aparência.
+ * Escala TODOS os estilos da Typography — inclusive os padrão do M3
+ * (labelLarge de botões, headlineSmall de títulos de diálogo, bodySmall…),
+ * não só os customizados acima.
+ */
 fun escalarTipografia(base: Typography, fator: Float): Typography =
-    if (fator == 1f) base else base.copy(
-        displayLarge = base.displayLarge.copy(fontSize = base.displayLarge.fontSize * fator),
-        displayMedium = base.displayMedium.copy(fontSize = base.displayMedium.fontSize * fator),
-        titleLarge = base.titleLarge.copy(fontSize = base.titleLarge.fontSize * fator),
-        titleMedium = base.titleMedium.copy(fontSize = base.titleMedium.fontSize * fator),
-        bodyLarge = base.bodyLarge.copy(fontSize = base.bodyLarge.fontSize * fator),
-        bodyMedium = base.bodyMedium.copy(fontSize = base.bodyMedium.fontSize * fator),
-        labelSmall = base.labelSmall.copy(fontSize = base.labelSmall.fontSize * fator)
+    if (fator == 1f) base else Typography(
+        displayLarge = base.displayLarge.escalar(fator),
+        displayMedium = base.displayMedium.escalar(fator),
+        displaySmall = base.displaySmall.escalar(fator),
+        headlineLarge = base.headlineLarge.escalar(fator),
+        headlineMedium = base.headlineMedium.escalar(fator),
+        headlineSmall = base.headlineSmall.escalar(fator),
+        titleLarge = base.titleLarge.escalar(fator),
+        titleMedium = base.titleMedium.escalar(fator),
+        titleSmall = base.titleSmall.escalar(fator),
+        bodyLarge = base.bodyLarge.escalar(fator),
+        bodyMedium = base.bodyMedium.escalar(fator),
+        bodySmall = base.bodySmall.escalar(fator),
+        labelLarge = base.labelLarge.escalar(fator),
+        labelMedium = base.labelMedium.escalar(fator),
+        labelSmall = base.labelSmall.escalar(fator)
     )
