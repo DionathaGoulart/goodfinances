@@ -1,6 +1,5 @@
 package com.finapp.ui.screen
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -12,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
@@ -116,7 +117,14 @@ fun OnibusScreen(viewModel: OnibusViewModel = hiltViewModel()) {
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.toggleable(
+                        value = config.idaEVolta,
+                        role = Role.Switch,
+                        onValueChange = viewModel::definirIdaEVolta
+                    ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Ida e volta",
@@ -132,7 +140,8 @@ fun OnibusScreen(viewModel: OnibusViewModel = hiltViewModel()) {
                     }
                     Switch(
                         checked = config.idaEVolta,
-                        onCheckedChange = viewModel::definirIdaEVolta
+                        // A Row é o único nó tocável/focável desta opção
+                        onCheckedChange = null
                     )
                 }
             }
@@ -264,6 +273,8 @@ private fun RecargaDialog(
     var valor by remember { mutableStateOf(0L) }
     var perfil by remember { mutableStateOf(perfilAtual) }
     var registrarGasto by remember { mutableStateOf(true) }
+    // Valida dentro do dialog: erro no próprio campo, sem fechar e perder o input
+    var erroValor by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onFechar,
         title = { Text("Recarregar ônibus") },
@@ -271,21 +282,31 @@ private fun RecargaDialog(
             Column {
                 CampoMoeda(
                     valor = valor,
-                    onValor = { valor = it },
+                    onValor = {
+                        valor = it
+                        erroValor = null
+                    },
                     rotulo = "Valor da recarga",
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = erroValor != null,
+                    supportingText = { erroValor?.let { Text(it) } }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
+                    // Linha inteira alterna o checkbox: um único nó de foco
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { registrarGasto = !registrarGasto },
+                        .toggleable(
+                            value = registrarGasto,
+                            role = Role.Checkbox,
+                            onValueChange = { registrarGasto = it }
+                        ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Checkbox(
                         checked = registrarGasto,
-                        onCheckedChange = { registrarGasto = it }
+                        onCheckedChange = null
                     )
                     Text(
                         text = "Registrar como gasto",
@@ -325,7 +346,15 @@ private fun RecargaDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirmar(valor, perfil, registrarGasto) }) {
+            TextButton(
+                onClick = {
+                    if (valor <= 0L) {
+                        erroValor = "Informe um valor maior que zero"
+                    } else {
+                        onConfirmar(valor, perfil, registrarGasto)
+                    }
+                }
+            ) {
                 Text("Recarregar")
             }
         },
@@ -356,7 +385,9 @@ private fun CampoMoeda(
     valor: Long,
     onValor: (Long) -> Unit,
     rotulo: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isError: Boolean = false,
+    supportingText: @Composable (() -> Unit)? = null
 ) {
     val exibicao = Formatadores.moeda(valor)
     OutlinedTextField(
@@ -367,6 +398,8 @@ private fun CampoMoeda(
         },
         label = { Text(rotulo) },
         singleLine = true,
+        isError = isError,
+        supportingText = supportingText,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = modifier
     )

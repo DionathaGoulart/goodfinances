@@ -33,6 +33,8 @@ import com.finapp.utils.Formatadores
  * ("a pagar" → quanto sobra depois de pagar tudo).
  * [mostrarResumoMes] liga a linha "Este mês +ganhos −gastos" (contextos
  * pessoais); no contexto de empresa, os cards Receita/Despesa já cobrem isso.
+ * [rotuloMes] identifica o mês do resumo ("Este mês" ou "Em Julho" ao
+ * navegar no histórico).
  */
 @Composable
 fun SaldoCard(
@@ -43,7 +45,8 @@ fun SaldoCard(
     rotulo: String = "SALDO TOTAL",
     aPagarMes: Long = 0L,
     saldoAposPagar: Long = 0L,
-    mostrarResumoMes: Boolean = true
+    mostrarResumoMes: Boolean = true,
+    rotuloMes: String = "Este mês"
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -85,7 +88,7 @@ fun SaldoCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Este mês",
+                        text = rotuloMes,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f)
