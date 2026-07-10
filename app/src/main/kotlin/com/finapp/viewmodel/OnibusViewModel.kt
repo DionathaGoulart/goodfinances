@@ -10,6 +10,7 @@ import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.repository.FinanceRepository
+import com.finapp.data.sync.CasaManager
 import com.finapp.utils.fluxoDataAtual
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -31,7 +32,8 @@ import javax.inject.Inject
 class OnibusViewModel @Inject constructor(
     private val onibusManager: OnibusManager,
     private val repository: FinanceRepository,
-    private val perfilManager: PerfilManager
+    private val perfilManager: PerfilManager,
+    private val casaManager: CasaManager
 ) : ViewModel() {
 
     val config: StateFlow<ConfigOnibus> = onibusManager.config
@@ -76,6 +78,9 @@ class OnibusViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 if (registrarGasto) {
+                    // Na Casa, carimba a autoria (mesma regra do TransacaoViewModel):
+                    // sem ela a linha fica sem "por Fulano" e editável por todos
+                    val usuario = casaManager.usuario.value.takeIf { perfil == Perfil.CASA }
                     repository.inserirTransacao(
                         Transacao(
                             valor = centavos,
@@ -84,6 +89,8 @@ class OnibusViewModel @Inject constructor(
                             descricao = "Ônibus",
                             data = LocalDate.now(),
                             perfil = perfil,
+                            criadoPor = usuario?.nome.orEmpty(),
+                            criadoPorUid = usuario?.uid.orEmpty(),
                             pago = true
                         )
                     )
