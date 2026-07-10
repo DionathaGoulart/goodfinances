@@ -144,6 +144,15 @@ class HomeViewModel @Inject constructor(
         .flatMapLatest { repository.observarCartoes(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * Cor de cada categoria (nome -> hex), incluindo arquivadas — o ícone das
+     * linhas do histórico usa a cor da categoria para reconhecimento rápido.
+     */
+    val coresCategorias: StateFlow<Map<String, String>> = perfilDados
+        .flatMapLatest { repository.observarCategorias(it) }
+        .map { categorias -> categorias.associate { it.nome to it.cor } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     /** Vai para o mês anterior / próximo / um mês qualquer / de volta ao atual. */
     fun mesAnterior() {
         _mesSelecionado.value = _mesSelecionado.value.minusMonths(1)

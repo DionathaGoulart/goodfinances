@@ -38,7 +38,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -346,7 +348,8 @@ private fun CartaoSecao(conteudo: @Composable androidx.compose.foundation.layout
 
 /**
  * Campo de moeda em centavos (máscara BR): mostra sempre o valor formatado e
- * reconstrói a partir dos dígitos digitados.
+ * reconstrói a partir dos dígitos digitados. Cursor fixo no fim (como no
+ * modal de transação) — digitar no meio não bagunça a máscara.
  */
 @Composable
 private fun CampoMoeda(
@@ -355,10 +358,11 @@ private fun CampoMoeda(
     rotulo: String,
     modifier: Modifier = Modifier
 ) {
+    val exibicao = Formatadores.moeda(valor)
     OutlinedTextField(
-        value = Formatadores.moeda(valor),
-        onValueChange = { texto ->
-            val digitos = texto.filter { it.isDigit() }.take(12)
+        value = TextFieldValue(exibicao, selection = TextRange(exibicao.length)),
+        onValueChange = { novo ->
+            val digitos = novo.text.filter { it.isDigit() }.trimStart('0').take(12)
             onValor(digitos.toLongOrNull() ?: 0L)
         },
         label = { Text(rotulo) },
