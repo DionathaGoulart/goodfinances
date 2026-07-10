@@ -174,6 +174,10 @@ class FinanceRepository @Inject constructor(
     fun buscarTransacoes(perfil: Perfil, termo: String): Flow<List<Transacao>> =
         transacaoDao.buscar(perfil, termo)
 
+    /** Sugestão de categoria pelo histórico de descrições parecidas. */
+    suspend fun sugerirCategoria(perfil: Perfil, tipo: TipoTransacao, descricao: String): String? =
+        transacaoDao.categoriaMaisUsada(perfil, tipo, descricao.trim())
+
     // ---------- Agregações (Dashboard e Análise) ----------
 
     fun observarSaldoTotal(perfil: Perfil): Flow<Long> =
