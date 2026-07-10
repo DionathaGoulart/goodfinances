@@ -24,20 +24,17 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -48,7 +45,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,14 +64,13 @@ import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.db.entities.ehEmpresa
-import com.finapp.ui.component.CartaoGrupoCabecalho
+import com.finapp.ui.component.CartaoGrupoCard
 import com.finapp.ui.component.LucroCard
 import com.finapp.ui.component.ResumoCard
 import com.finapp.ui.component.SaldoCard
 import com.finapp.ui.component.TransacaoLinha
 import com.finapp.ui.component.agruparPorCartao
 import com.finapp.ui.component.TransacaoModal
-import com.finapp.ui.component.TransferenciaDialog
 import com.finapp.ui.component.VisaoMembros
 import com.finapp.ui.theme.GreenPrimary
 import com.finapp.ui.theme.RedExpense
@@ -125,25 +120,14 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         if (abrirModalInicial) onLancamentoConsumido()
     }
-    // Toque no saldo alterna: total <-> mês
-    var mostrandoSaldoMes by remember { mutableStateOf(false) }
     // Sub-visão da Casa: carteira conjunta ("Da casa") ou finanças dos membros
     var visaoMembros by rememberSaveable { mutableStateOf(false) }
     val mostrandoMembros = perfilDados == Perfil.CASA && visaoMembros
-    // Transferência entre contextos (Pessoal / Empresa / Casa)
-    var transferenciaAberta by remember { mutableStateOf(false) }
     // Seletor de mês/ano (navegação do histórico)
     var mesPickerAberto by remember { mutableStateOf(false) }
 
-    // Estado da lista: o FAB "Adicionar" mostra o rótulo no topo e recolhe
-    // para só o ícone durante a rolagem (libera espaço para o histórico)
+    // Estado da lista do histórico
     val listState = rememberLazyListState()
-    val fabExpandido by remember {
-        derivedStateOf {
-            listState.firstVisibleItemIndex == 0 &&
-                listState.firstVisibleItemScrollOffset == 0
-        }
-    }
     // Trocar de mês recomeça a lista do topo
     LaunchedEffect(mesSelecionado, perfilDados) {
         listState.scrollToItem(0)
@@ -167,44 +151,8 @@ fun HomeScreen(
 
     Scaffold(
         containerColor = Color.Transparent,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            // A visão Membros é somente leitura — sem botões de ação
-            if (!mostrandoMembros) {
-                Column(horizontalAlignment = Alignment.End) {
-                    // Transferir entre contextos (só quando há mais de um)
-                    if (contextos.size > 1) {
-                        SmallFloatingActionButton(
-                            onClick = { transferenciaAberta = true },
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.SwapHoriz,
-                                contentDescription = "Transferir entre contextos"
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
-                    ExtendedFloatingActionButton(
-                        onClick = {
-                            transacaoEmEdicao = null
-                            modalAberto = true
-                        },
-                        expanded = fabExpandido,
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Filled.Add,
-                                contentDescription = "Adicionar transação"
-                            )
-                        },
-                        text = { Text("Adicionar") },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                }
-            }
-        }
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+        // Adicionar/Transferir ficam no botão + central da barra inferior
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -328,40 +276,39 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
-            SaldoCard(
-                saldo = if (mostrandoSaldoMes) ganhos - gastos else saldo,
-                rotulo = if (mostrandoSaldoMes) "SALDO DO MÊS · TOQUE P/ TOTAL"
-                else "SALDO TOTAL · TOQUE P/ MÊS",
-                // Pendências do mês (fatura, recorrências): quanto ainda vai
-                // sair e quanto sobra depois de pagar tudo
-                aPagarMes = if (mostrandoSaldoMes) 0L else pendenteMes,
-                saldoAposPagar = saldo - pendenteMes,
-                onClick = { mostrandoSaldoMes = !mostrandoSaldoMes }
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
             // Contexto de empresa usa vocabulário próprio: Receita / Despesa + Lucro
             val cnpj = perfilDados.ehEmpresa
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                ResumoCard(
-                    tipo = TipoTransacao.GANHO,
-                    valor = ganhos,
-                    modifier = Modifier.weight(1f),
-                    rotuloCustom = if (cnpj) "Receita" else null
-                )
-                ResumoCard(
-                    tipo = TipoTransacao.GASTO,
-                    valor = gastos,
-                    modifier = Modifier.weight(1f),
-                    rotuloCustom = if (cnpj) "Despesa" else null
-                )
-            }
+            SaldoCard(
+                saldoTotal = saldo,
+                ganhosMes = ganhos,
+                gastosMes = gastos,
+                // Pendências do mês (fatura, recorrências): quanto ainda vai
+                // sair e quanto sobra depois de pagar tudo
+                aPagarMes = pendenteMes,
+                saldoAposPagar = saldo - pendenteMes,
+                // Na empresa os cards Receita/Despesa + Lucro abaixo já detalham
+                mostrarResumoMes = !cnpj
+            )
 
             if (cnpj) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ResumoCard(
+                        tipo = TipoTransacao.GANHO,
+                        valor = ganhos,
+                        modifier = Modifier.weight(1f),
+                        rotuloCustom = "Receita"
+                    )
+                    ResumoCard(
+                        tipo = TipoTransacao.GASTO,
+                        valor = gastos,
+                        modifier = Modifier.weight(1f),
+                        rotuloCustom = "Despesa"
+                    )
+                }
                 Spacer(modifier = Modifier.height(12.dp))
                 LucroCard(lucro = ganhos - gastos)
             }
@@ -424,12 +371,13 @@ fun HomeScreen(
                     mutableStateOf(listOf<String>())
                 }
 
-                val linhaTransacao: @Composable (Transacao) -> Unit = { transacao ->
+                val linhaTransacao: @Composable (Transacao, Color?) -> Unit = { transacao, corFundo ->
                     val podeEditar = viewModel.podeEditar(transacao)
                     TransacaoLinha(
                         transacao = transacao,
                         podeEditar = podeEditar,
                         podeEsconder = podeEsconder,
+                        corFundo = corFundo,
                         onEditar = {
                             transacaoEmEdicao = it
                             modalAberto = true
@@ -459,20 +407,20 @@ fun HomeScreen(
                     )
                 }
 
+                // Fundo dos itens dentro do card do cartão (integra à moldura)
+                val corItemCartao = MaterialTheme.colorScheme.surface
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.weight(1f),
-                    // Folga no fim da lista: as últimas transações rolam para
-                    // cima dos FABs (adicionar/transferir) em vez de ficarem
-                    // escondidas embaixo deles
-                    contentPadding = PaddingValues(
-                        bottom = if (contextos.size > 1) 136.dp else 88.dp
-                    )
+                    // Folga no fim da lista para as últimas transações rolarem
+                    // acima da barra inferior (com o botão + central)
+                    contentPadding = PaddingValues(bottom = 96.dp)
                 ) {
                     gruposCartao.forEach { grupo ->
                         val expandido = grupo.cartaoUuid in cartoesExpandidos
+                        // O card inteiro (cabeçalho + compras) num único item
                         item(key = "cartao-${grupo.cartaoUuid}") {
-                            CartaoGrupoCabecalho(
+                            CartaoGrupoCard(
                                 grupo = grupo,
                                 expandido = expandido,
                                 onPagarFatura = { viewModel.pagarFatura(grupo.transacoes) },
@@ -483,16 +431,15 @@ fun HomeScreen(
                                         cartoesExpandidos + grupo.cartaoUuid
                                     }
                                 }
-                            )
-                        }
-                        if (expandido) {
-                            items(grupo.transacoes, key = { it.id }) { transacao ->
-                                linhaTransacao(transacao)
+                            ) {
+                                grupo.transacoes.forEach { transacao ->
+                                    linhaTransacao(transacao, corItemCartao)
+                                }
                             }
                         }
                     }
                     items(avulsas, key = { it.id }) { transacao ->
-                        linhaTransacao(transacao)
+                        linhaTransacao(transacao, null)
                     }
                 }
             }
@@ -586,15 +533,6 @@ fun HomeScreen(
                     }
                 }
             }
-        )
-    }
-
-    if (transferenciaAberta) {
-        TransferenciaDialog(
-            origem = perfilDados,
-            destinos = contextos - perfilDados,
-            onTransferir = transacaoViewModel::transferir,
-            onFechar = { transferenciaAberta = false }
         )
     }
 

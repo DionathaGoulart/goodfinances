@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
@@ -51,6 +52,7 @@ fun TransacaoItem(
     transacao: Transacao,
     modifier: Modifier = Modifier,
     mostrarData: Boolean = true,
+    corFundo: Color? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null
 ) {
@@ -66,7 +68,7 @@ fun TransacaoItem(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background)
+            .background(corFundo ?: MaterialTheme.colorScheme.background)
             .let {
                 when {
                     onClick != null || onLongClick != null -> it.combinedClickable(
@@ -198,6 +200,7 @@ fun TransacaoLinha(
     onAlternarOculto: (Transacao) -> Unit,
     modifier: Modifier = Modifier,
     mostrarData: Boolean = true,
+    corFundo: Color? = null,
     onAlternarPago: ((Transacao) -> Unit)? = null,
     onBloqueado: () -> Unit = {}
 ) {
@@ -208,6 +211,7 @@ fun TransacaoLinha(
         TransacaoItem(
             transacao = transacao,
             mostrarData = mostrarData,
+            corFundo = corFundo,
             onClick = { if (podeEditar) onEditar(transacao) else onBloqueado() },
             onLongClick = if (temMenu) {
                 { menuAberto = true }

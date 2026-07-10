@@ -83,12 +83,15 @@ fun TransacaoModal(
     onFechar: () -> Unit,
     transacaoParaEditar: Transacao? = null,
     onDeletar: ((Transacao) -> Unit)? = null,
+    tipoInicial: TipoTransacao? = null,
     viewModel: TransacaoViewModel = hiltViewModel()
 ) {
     val edicao = transacaoParaEditar != null
     val categoriaOriginal = transacaoParaEditar?.categoria
 
-    var tipo by remember { mutableStateOf(transacaoParaEditar?.tipo ?: TipoTransacao.GANHO) }
+    var tipo by remember {
+        mutableStateOf(transacaoParaEditar?.tipo ?: tipoInicial ?: TipoTransacao.GANHO)
+    }
     // Valor em centavos, como texto (máscara de moeda BR)
     var digitos by remember {
         mutableStateOf(transacaoParaEditar?.valor?.toString() ?: "")

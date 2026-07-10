@@ -878,7 +878,7 @@ fun ConfigScreen(
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                text = "Contato: dgoulart.work@gmail.com",
+                text = "Contato: contato@dionatha.com.br",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

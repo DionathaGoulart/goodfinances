@@ -41,6 +41,9 @@ class TransacaoViewModel @Inject constructor(
     /** Balde de dados efetivo (no MEI, acompanha a aba Pessoal/Negócio). */
     val perfil: StateFlow<Perfil> = perfilManager.perfilDados
 
+    /** Abas/contextos disponíveis (Pessoal/Empresa/Casa) — destino da transferência. */
+    val contextos: StateFlow<List<Perfil>> = perfilManager.contextosDisponiveis
+
     private val _mensagens = MutableSharedFlow<String>()
     val mensagens: SharedFlow<String> = _mensagens
 
