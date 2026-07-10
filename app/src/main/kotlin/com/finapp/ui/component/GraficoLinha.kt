@@ -27,10 +27,11 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.finapp.ui.theme.GreenPrimary
-import com.finapp.ui.theme.OutlineDark
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
 import com.finapp.viewmodel.ValorMensal
@@ -60,6 +61,15 @@ fun GraficoLinha(
     val maiorValor = remember(series) {
         maxOf(series.maxOf { it.ganhos }, series.maxOf { it.gastos }, 1L).toDouble()
     }
+    val corGrade = MaterialTheme.colorScheme.outline
+    // Resumo textual do gráfico para leitores de tela (TalkBack)
+    val resumoAcessivel = remember(series) {
+        series.joinToString(prefix = "Gráfico de linha. ", separator = "; ") { mes ->
+            "${mes.mes.format(formatoMes).uppercase(Formatadores.LOCALE_BR)}: " +
+                "ganhos ${Formatadores.moeda(mes.ganhos)}, " +
+                "gastos ${Formatadores.moeda(mes.gastos)}"
+        }
+    }
 
     Column(modifier = modifier.fillMaxWidth()) {
         // Tooltip do mês tocado
@@ -88,6 +98,7 @@ fun GraficoLinha(
                             .coerceIn(series.indices.first, series.indices.last)
                     }
                 }
+                .semantics { contentDescription = resumoAcessivel }
         ) {
             val largura = size.width
             val altura = size.height
@@ -97,7 +108,7 @@ fun GraficoLinha(
             repeat(5) { i ->
                 val y = altura * i / 4f
                 drawLine(
-                    color = OutlineDark.copy(alpha = 0.5f),
+                    color = corGrade.copy(alpha = 0.5f),
                     start = Offset(0f, y),
                     end = Offset(largura, y),
                     strokeWidth = 1f

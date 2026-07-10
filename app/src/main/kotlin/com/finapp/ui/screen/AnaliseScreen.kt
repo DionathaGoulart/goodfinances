@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -57,7 +58,6 @@ import com.finapp.ui.component.GraficoBarras
 import com.finapp.ui.component.GraficoLinha
 import com.finapp.ui.component.GraficoPizza
 import com.finapp.ui.component.TransacaoItem
-import com.finapp.ui.theme.BluAccent
 import com.finapp.ui.theme.OrangeAlert
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
@@ -140,7 +140,7 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
                     },
                     label = { Text(opcao.rotulo) },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = BluAccent,
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
                         selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                     )
                 )
@@ -169,7 +169,7 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
                     onClick = { subAbaIndice = abas.indexOf(aba) },
                     label = { Text(aba.rotulo) },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = BluAccent,
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
                         selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                     )
                 )
@@ -547,7 +547,8 @@ private fun SecaoGrafico(
     Spacer(modifier = Modifier.height(20.dp))
 }
 
-/** Altura fixa para os 4 cards de estatística ficarem idênticos. */
+/** Altura mínima para os 4 cards de estatística ficarem alinhados
+ * (mínimo em vez de fixa: com fonte grande o conteúdo cresce sem cortar). */
 private val ALTURA_CARD_ESTATISTICA = 120.dp
 
 /** Linha "nome ......... valor" do detalhamento, com % opcional. */
@@ -907,7 +908,7 @@ private fun EstatisticaCard(
 ) {
     Card(
         modifier = modifier
-            .height(ALTURA_CARD_ESTATISTICA)
+            .heightIn(min = ALTURA_CARD_ESTATISTICA)
             .let { if (onClick != null) it.clickable(onClick = onClick) else it },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -940,7 +941,8 @@ private fun EstatisticaCard(
                     text = detalhe,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
