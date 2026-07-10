@@ -53,6 +53,24 @@ class FinanceRepository @Inject constructor(
         transacaoDao.atualizar(transacao.copy(atualizadoEm = agora()))
 
     /**
+     * Edita uma perna de transferência espelhando VALOR e DATA na outra —
+     * as duas pernas precisam continuar batendo (mesmo montante saindo de um
+     * contexto e entrando no outro). Descrição/nota são de cada perna.
+     */
+    suspend fun atualizarTransferencia(transacao: Transacao) {
+        val momento = agora()
+        transacaoDao.atualizar(transacao.copy(atualizadoEm = momento))
+        if (transacao.transferenciaId.isBlank()) return
+        transacaoDao.listarPorTransferencia(transacao.transferenciaId)
+            .filter { it.uuid != transacao.uuid && !it.deletado }
+            .forEach {
+                transacaoDao.atualizar(
+                    it.copy(valor = transacao.valor, data = transacao.data, atualizadoEm = momento)
+                )
+            }
+    }
+
+    /**
      * Deleção LÓGICA (tombstone) — necessária para propagar no sync.
      * Transferências entre contextos apagam as DUAS pernas juntas.
      */
@@ -110,6 +128,14 @@ class FinanceRepository @Inject constructor(
         } else {
             transacaoDao.marcarTodasDeletadas(perfil, agora())
         }
+
+    /**
+     * "Limpar dados" no contexto Casa: tombstona só os MEUS lançamentos.
+     * Limpar tudo propagaria a deleção dos lançamentos dos outros membros
+     * para todos os aparelhos — um membro apagaria a carteira dos demais.
+     */
+    suspend fun limparMinhasTransacoesCasa(uid: String) =
+        transacaoDao.marcarMinhasDeletadas(Perfil.CASA, uid, agora())
 
     /**
      * Limpeza LOCAL ao sair de uma casa: apaga físico os baldes da Casa
@@ -262,7 +288,8 @@ class FinanceRepository @Inject constructor(
         categoria: Categoria,
         novoNome: String,
         novaCor: String,
-        novoOrcamento: Long = categoria.orcamentoMensal
+        novoOrcamento: Long = categoria.orcamentoMensal,
+        autorUid: String? = null
     ) {
         val momento = agora()
         categoriaDao.atualizar(
@@ -274,7 +301,16 @@ class FinanceRepository @Inject constructor(
             )
         )
         if (novoNome != categoria.nome) {
-            transacaoDao.renomearCategoria(categoria.perfil, categoria.nome, novoNome, momento)
+            // Na Casa, a categoria é coletiva e propaga a todos, mas as
+            // transações são por autor: re-carimbo só as minhas (senão as dos
+            // outros ficam com nome novo só neste aparelho e travam o sync).
+            if (categoria.perfil == Perfil.CASA && !autorUid.isNullOrBlank()) {
+                transacaoDao.renomearCategoriaDoAutor(
+                    categoria.perfil, categoria.nome, novoNome, momento, autorUid
+                )
+            } else {
+                transacaoDao.renomearCategoria(categoria.perfil, categoria.nome, novoNome, momento)
+            }
             transacaoRecorrenteDao.renomearCategoria(
                 categoria.perfil, categoria.nome, novoNome, momento
             )
@@ -416,7 +452,14 @@ class FinanceRepository @Inject constructor(
         transacaoRecorrenteDao.listarAtivas(perfil)
 
     suspend fun inserirRecorrente(recorrente: TransacaoRecorrente): Long =
-        transacaoRecorrenteDao.inserir(recorrente)
+        transacaoRecorrenteDao.inserir(
+            // Garante o dia desejado da recorrência mensal (ver [TransacaoRecorrente.diaMensal])
+            if (recorrente.frequencia == Frequencia.MENSAL && recorrente.diaMensal == 0) {
+                recorrente.copy(diaMensal = recorrente.proximoLancamento.dayOfMonth)
+            } else {
+                recorrente
+            }
+        )
 
     suspend fun atualizarRecorrente(recorrente: TransacaoRecorrente) =
         transacaoRecorrenteDao.atualizar(recorrente.copy(atualizadoEm = agora()))
@@ -474,7 +517,18 @@ class FinanceRepository @Inject constructor(
                     proxima = when (recorrente.frequencia) {
                         Frequencia.DIARIA -> proxima.plusDays(1)
                         Frequencia.SEMANAL -> proxima.plusWeeks(1)
-                        Frequencia.MENSAL -> proxima.plusMonths(1)
+                        // Reancora no dia desejado todo mês: plusMonths
+                        // encadeado truncaria 31 -> 28 em fevereiro e a
+                        // recorrência ficaria presa no dia 28 para sempre
+                        Frequencia.MENSAL -> {
+                            val dia = if (recorrente.diaMensal in 1..31) {
+                                recorrente.diaMensal
+                            } else {
+                                proxima.dayOfMonth
+                            }
+                            val proximoMes = YearMonth.from(proxima).plusMonths(1)
+                            proximoMes.atDay(dia.coerceAtMost(proximoMes.lengthOfMonth()))
+                        }
                         Frequencia.ANUAL -> proxima.plusYears(1)
                     }
                 }
@@ -570,17 +624,30 @@ class FinanceRepository @Inject constructor(
      */
     suspend fun pagarConta(conta: ContaAgendada, dataPagamento: LocalDate = LocalDate.now()) {
         db.withTransaction {
-            transacaoDao.inserir(
-                Transacao(
-                    valor = conta.valor,
-                    tipo = conta.tipo,
-                    categoria = conta.categoria,
-                    descricao = conta.descricao,
-                    data = dataPagamento,
-                    perfil = conta.perfil
+            // Idempotente: na Casa, dois membros podem pagar a mesma conta
+            // antes do sync propagar o `pago` — o segundo não pode duplicar
+            // a despesa. Relê o estado dentro da transação e usa um uuid
+            // DETERMINÍSTICO derivado da conta: mesmo que dois aparelhos
+            // paguem offline, o sync converge para uma única transação.
+            val atual = contaAgendadaDao.obterPorUuid(conta.uuid) ?: conta
+            if (atual.pago) return@withTransaction
+            val uuidPagamento = java.util.UUID
+                .nameUUIDFromBytes("pagamento-${conta.uuid}".toByteArray())
+                .toString()
+            if (transacaoDao.obterPorUuid(uuidPagamento) == null) {
+                transacaoDao.inserir(
+                    Transacao(
+                        uuid = uuidPagamento,
+                        valor = conta.valor,
+                        tipo = conta.tipo,
+                        categoria = conta.categoria,
+                        descricao = conta.descricao,
+                        data = dataPagamento,
+                        perfil = conta.perfil
+                    )
                 )
-            )
-            contaAgendadaDao.atualizar(conta.copy(pago = true, atualizadoEm = agora()))
+            }
+            contaAgendadaDao.atualizar(atual.copy(pago = true, atualizadoEm = agora()))
         }
     }
 }

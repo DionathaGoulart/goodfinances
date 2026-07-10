@@ -274,20 +274,20 @@ class AnaliseViewModel @Inject constructor(
 
     /**
      * Faturas em aberto dos cartões do contexto: agrupa as compras no crédito
-     * pela data de vencimento (a `data` da transação de crédito). Mostra da
-     * fatura do mês corrente em diante (as anteriores já fecharam).
+     * PENDENTES pela data de vencimento (a `data` da transação de crédito).
+     * Fatura vencida e não paga continua aparecendo (é a mais urgente);
+     * fatura já paga sai da lista — o corte é o `pago`, não o mês.
      */
     val faturas: StateFlow<List<Fatura>> =
-        combine(perfil, dataAtual) { p, hoje -> p to hoje }
-            .flatMapLatest { (p, hoje) ->
+        perfil
+            .flatMapLatest { p ->
                 combine(
                     repository.observarTransacoes(p),
                     repository.observarCartoes(p)
                 ) { transacoes, cartoes ->
                     val corPorUuid = cartoes.associate { it.uuid to (it.nome to it.cor) }
-                    val inicioMesAtual = YearMonth.from(hoje).atDay(1)
                     transacoes
-                        .filter { it.cartaoUuid.isNotBlank() && !it.data.isBefore(inicioMesAtual) }
+                        .filter { it.cartaoUuid.isNotBlank() && !it.pago }
                         .groupBy { it.cartaoUuid to it.data }
                         .map { (chave, itens) ->
                             val (uuid, vencimento) = chave

@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Close
@@ -51,6 +52,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
@@ -90,6 +95,13 @@ fun TransacaoModal(
 ) {
     val edicao = transacaoParaEditar != null
     val categoriaOriginal = transacaoParaEditar?.categoria
+    // Perna de transferência: valor/data espelham na outra perna ao salvar;
+    // tipo e categoria ficam travados (mudar um lado quebraria o par).
+    val ehTransferencia = transacaoParaEditar?.transferenciaId?.isNotBlank() == true
+    // Compra no crédito: o campo de data edita a DATA DA COMPRA e o
+    // vencimento ([Transacao.data]) é recalculado — editar o vencimento
+    // direto tiraria a compra da fatura certa.
+    val ehCompraCredito = transacaoParaEditar?.cartaoUuid?.isNotBlank() == true
 
     var tipo by remember {
         mutableStateOf(transacaoParaEditar?.tipo ?: tipoInicial ?: TipoTransacao.GANHO)
@@ -100,7 +112,15 @@ fun TransacaoModal(
     }
     var textoCategoria by remember { mutableStateOf(categoriaOriginal ?: "Outros") }
     var descricao by remember { mutableStateOf(transacaoParaEditar?.descricao ?: "") }
-    var data by remember { mutableStateOf(transacaoParaEditar?.data ?: LocalDate.now()) }
+    var data by remember {
+        mutableStateOf(
+            if (ehCompraCredito) {
+                transacaoParaEditar?.dataCompra ?: transacaoParaEditar?.data ?: LocalDate.now()
+            } else {
+                transacaoParaEditar?.data ?: LocalDate.now()
+            }
+        )
+    }
     var repetirMensalmente by remember { mutableStateOf(false) }
     var parcelas by remember { mutableStateOf(1) }
     var proLabore by remember { mutableStateOf(false) }
@@ -224,25 +244,56 @@ fun TransacaoModal(
             Spacer(modifier = Modifier.height(8.dp))
 
             // ---------- Toggle Ganho / Gasto ----------
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                TipoTransacao.entries.forEach { opcao ->
-                    val selecionado = tipo == opcao
-                    val corOpcao =
-                        if (opcao == TipoTransacao.GANHO) GreenPrimary else RedExpense
-                    Button(
-                        onClick = { tipo = opcao },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (selecionado) corOpcao
-                            else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (selecionado) MaterialTheme.colorScheme.onPrimary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    ) {
-                        Text(if (opcao == TipoTransacao.GANHO) "Ganho" else "Gasto")
+            // Travado em transferência (quebraria o par) e em compra no
+            // crédito ("ganho no cartão" não existe — sairia do grupo errado).
+            if (ehTransferencia || ehCompraCredito) {
+                Text(
+                    text = when {
+                        ehTransferencia -> "Transferência entre contextos"
+                        tipo == TipoTransacao.GANHO -> "Ganho"
+                        else -> "Gasto no crédito"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TipoTransacao.entries.forEach { opcao ->
+                        val selecionado = tipo == opcao
+                        val corOpcao =
+                            if (opcao == TipoTransacao.GANHO) GreenPrimary else RedExpense
+                        Button(
+                            onClick = {
+                                tipo = opcao
+                                // Parcelamento/crédito/pró-labore só existem em
+                                // GASTO: zera ao trocar, senão o estado escondido
+                                // vaza no salvar (ganho fatiado em N parcelas)
+                                if (opcao == TipoTransacao.GANHO) {
+                                    parcelas = 1
+                                    pagamentoCredito = false
+                                    cartaoSelecionado = null
+                                    proLabore = false
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                // TalkBack anuncia qual opção está marcada
+                                .semantics {
+                                    role = Role.RadioButton
+                                    selected = selecionado
+                                },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (selecionado) corOpcao
+                                else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (selecionado) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        ) {
+                            Text(if (opcao == TipoTransacao.GANHO) "Ganho" else "Gasto")
+                        }
                     }
                 }
             }
@@ -275,9 +326,11 @@ fun TransacaoModal(
             Spacer(modifier = Modifier.height(12.dp))
 
             // ---------- Categoria (seleção apenas — sem digitação) ----------
+            // Transferência fica presa à categoria "Transferência": mudá-la
+            // faria uma perna contar como gasto/ganho comum e a outra não.
             ExposedDropdownMenuBox(
-                expanded = dropdownAberto,
-                onExpandedChange = { dropdownAberto = it }
+                expanded = dropdownAberto && !ehTransferencia,
+                onExpandedChange = { if (!ehTransferencia) dropdownAberto = it }
             ) {
                 OutlinedTextField(
                     value = textoCategoria,
@@ -288,7 +341,9 @@ fun TransacaoModal(
                         .menuAnchor(MenuAnchorType.PrimaryNotEditable),
                     label = { Text("Categoria") },
                     trailingIcon = {
-                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownAberto)
+                        if (!ehTransferencia) {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownAberto)
+                        }
                     },
                     singleLine = true,
                     isError = erroCategoria != null,
@@ -332,7 +387,7 @@ fun TransacaoModal(
                     value = Formatadores.dataCurta(data),
                     onValueChange = {},
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Data") },
+                    label = { Text(if (ehCompraCredito) "Data da compra" else "Data") },
                     readOnly = true,
                     trailingIcon = {
                         Icon(
@@ -438,7 +493,12 @@ fun TransacaoModal(
                             pagamentoCredito = false
                             cartaoSelecionado = null
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .semantics {
+                                role = Role.RadioButton
+                                selected = !pagamentoCredito
+                            },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (!pagamentoCredito) corAcento
                             else MaterialTheme.colorScheme.surfaceVariant,
@@ -458,7 +518,12 @@ fun TransacaoModal(
                                 cartaoSelecionado = cartoes.firstOrNull()
                             }
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .semantics {
+                                role = Role.RadioButton
+                                selected = pagamentoCredito
+                            },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (pagamentoCredito) corAcento
                             else MaterialTheme.colorScheme.surfaceVariant,
@@ -584,12 +649,19 @@ fun TransacaoModal(
             ) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    // Linha inteira alterna o checkbox: um único nó de foco
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = proLabore,
+                            role = Role.Checkbox,
+                            onValueChange = { proLabore = it }
+                        ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Checkbox(
                         checked = proLabore,
-                        onCheckedChange = { proLabore = it }
+                        onCheckedChange = null
                     )
                     Text(
                         text = "Pró-labore: lançar também como ganho no Pessoal",
@@ -603,12 +675,19 @@ fun TransacaoModal(
             if (!edicao && parcelas == 1 && !pagamentoCredito) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    // Linha inteira alterna o checkbox: um único nó de foco
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = repetirMensalmente,
+                            role = Role.Checkbox,
+                            onValueChange = { repetirMensalmente = it }
+                        ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Checkbox(
                         checked = repetirMensalmente,
-                        onCheckedChange = { repetirMensalmente = it }
+                        onCheckedChange = null
                     )
                     Text(
                         text = "Repetir todo mês (a partir do mês seguinte)",
@@ -656,13 +735,28 @@ fun TransacaoModal(
                             erroValor = "Cadastre um cartão para usar crédito"
                         else -> {
                             if (edicao) {
+                                val original = transacaoParaEditar!!
+                                // Compra no crédito: o campo editou a data da
+                                // COMPRA; o vencimento é recalculado pelo ciclo
+                                // do cartão (cartão apagado = vencimento fica)
+                                val cartaoDaCompra = cartoes
+                                    .firstOrNull { it.uuid == original.cartaoUuid }
+                                val (novaData, novaDataCompra) = if (ehCompraCredito) {
+                                    val vencimento = cartaoDaCompra
+                                        ?.let { viewModel.previsaoVencimento(it, data) }
+                                        ?: original.data
+                                    vencimento to data
+                                } else {
+                                    data to original.dataCompra
+                                }
                                 viewModel.editarTransacao(
-                                    transacaoParaEditar!!.copy(
+                                    original.copy(
                                         valor = valorCentavos,
                                         tipo = tipo,
                                         categoria = categoriaFinal,
                                         descricao = descricao.trim(),
-                                        data = data,
+                                        data = novaData,
+                                        dataCompra = novaDataCompra,
                                         notaFiscal = notaFiscal
                                     )
                                 )

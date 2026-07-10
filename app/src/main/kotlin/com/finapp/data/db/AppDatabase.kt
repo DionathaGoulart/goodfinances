@@ -23,7 +23,7 @@ import com.finapp.data.db.entities.TransacaoRecorrente
         Meta::class,
         ContaAgendada::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -365,6 +365,27 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "UPDATE Transacao SET pago = 0 " +
                         "WHERE cartaoUuid != '' AND deletado = 0 AND data >= $hoje"
+                )
+            }
+        }
+
+        /**
+         * v12 -> v13: TransacaoRecorrente ganha diaMensal (dia do mês desejado
+         * da recorrência MENSAL). Sem ele, o reagendamento encadeado com
+         * plusMonths trunca em fevereiro (31 -> 28) e a recorrência deriva
+         * para o dia 28 para sempre. Backfill: dia do lançamento agendado
+         * (proximoLancamento é epoch day; *86400 vira unix epoch em segundos).
+         */
+        val MIGRACAO_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE TransacaoRecorrente " +
+                        "ADD COLUMN diaMensal INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "UPDATE TransacaoRecorrente SET diaMensal = " +
+                        "CAST(strftime('%d', proximoLancamento * 86400, 'unixepoch') AS INTEGER) " +
+                        "WHERE frequencia = 'MENSAL'"
                 )
             }
         }
