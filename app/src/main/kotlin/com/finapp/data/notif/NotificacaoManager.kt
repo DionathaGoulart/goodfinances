@@ -93,6 +93,7 @@ class NotificacaoManager @Inject constructor(
         val baldes = baldesDoModo()
         val mesTag = "${hoje.year}-${hoje.monthValue}"
 
+        limparChavesAntigas(hoje, mesTag)
         runCatching { avaliarRecorrentes(baldes, hoje) }
         runCatching { avaliarContas(baldes, hoje) }
         runCatching { avaliarOrcamentos(baldes, hoje, mesTag) }
@@ -223,7 +224,10 @@ class NotificacaoManager @Inject constructor(
         )
         val fracao = faturamento.toDouble() / LIMITE_MEI_CENTAVOS
         if (fracao < 0.8) return
-        if (!marcarSeNovo("notif_mei_$mesTag")) return
+        // Dedup POR NÍVEL: quem já recebeu o aviso de 80% ainda precisa
+        // receber o de 100% se estourar no mesmo mês
+        val nivel = if (fracao >= 1.0) "100" else "80"
+        if (!marcarSeNovo("notif_mei_${mesTag}_$nivel")) return
         val texto = if (fracao >= 1.0) {
             "Limite estourado — procure seu contador sobre o desenquadramento"
         } else {
@@ -237,7 +241,12 @@ class NotificacaoManager @Inject constructor(
     private suspend fun avaliarInatividade(baldes: List<Perfil>, hoje: LocalDate) {
         val ultima = baldes
             .flatMap { repository.listarTransacoes(it) }
-            .maxOfOrNull { it.data } ?: return // sem dados nenhum: nada a lembrar
+            // Datas futuras (parcela, fatura, recorrência adiantada) não são
+            // atividade do usuário — sem o corte, uma parcela em dezembro
+            // suprimiria o lembrete o ano inteiro
+            .map { it.data }
+            .filter { !it.isAfter(hoje) }
+            .maxOrNull() ?: return // sem dados nenhum: nada a lembrar
         val diasParado = ChronoUnit.DAYS.between(ultima, hoje)
         if (diasParado < 3) return
         val ultimoAviso = prefs.getLong(CHAVE_INATIVO, 0L)
@@ -272,6 +281,29 @@ class NotificacaoManager @Inject constructor(
         if (prefs.getBoolean(chave, false)) return false
         prefs.edit { putBoolean(chave, true) }
         return true
+    }
+
+    /**
+     * Remove as chaves de dedup de dias/meses passados — uma por
+     * recorrência/conta por dia, cresceriam para sempre nas prefs.
+     */
+    private fun limparChavesAntigas(hoje: LocalDate, mesTag: String) {
+        val sufixoDia = "_$hoje"
+        val sufixoMes = "_$mesTag"
+        val vencidas = prefs.all.keys.filter { chave ->
+            when {
+                chave == CHAVE_INATIVO -> false // timestamp, não é dedup
+                chave.startsWith("notif_rec_") || chave.startsWith("notif_conta_") ->
+                    !chave.endsWith(sufixoDia)
+                chave.startsWith("notif_orc") || chave.startsWith("notif_das_") ->
+                    !chave.contains(sufixoMes)
+                chave.startsWith("notif_mei_") -> !chave.contains(sufixoMes)
+                else -> false
+            }
+        }
+        if (vencidas.isNotEmpty()) {
+            prefs.edit { vencidas.forEach { remove(it) } }
+        }
     }
 
     private fun temPermissao(): Boolean =
