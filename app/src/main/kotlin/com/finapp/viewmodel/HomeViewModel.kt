@@ -292,6 +292,10 @@ class HomeViewModel @Inject constructor(
     }
 
     fun restaurarTransacao(transacao: Transacao) {
+        if (!podeEditar(transacao)) {
+            viewModelScope.launch { _mensagens.emit("Só quem lançou pode restaurar esta transação") }
+            return
+        }
         viewModelScope.launch {
             // Deleção é lógica: restaurar = limpar o tombstone
             runCatching { repository.restaurarTransacao(transacao) }
@@ -301,6 +305,10 @@ class HomeViewModel @Inject constructor(
 
     /** Marca a pendência como paga (ou reverte) — aí sim desconta do saldo. */
     fun alternarPago(transacao: Transacao) {
+        if (!podeEditar(transacao)) {
+            viewModelScope.launch { _mensagens.emit("Só quem lançou pode dar baixa nesta compra") }
+            return
+        }
         viewModelScope.launch {
             runCatching { repository.marcarTransacaoPaga(transacao, !transacao.pago) }
                 .onSuccess {
@@ -313,19 +321,41 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** Paga a fatura do cartão: confirma todas as compras pendentes do grupo. */
+    /**
+     * Paga a fatura do cartão: confirma as compras pendentes do grupo.
+     * Na Casa, dá baixa só nas MINHAS compras — marcar as de outro membro
+     * como pagas ficaria só no meu aparelho (o push filtra por autor e as
+     * regras negam), divergindo o saldo da casa para sempre.
+     */
     fun pagarFatura(transacoes: List<Transacao>) {
         val pendentes = transacoes.filter { !it.pago }
         if (pendentes.isEmpty()) return
+        val minhas = pendentes.filter { podeEditar(it) }
+        if (minhas.isEmpty()) {
+            viewModelScope.launch { _mensagens.emit("Só quem lançou pode dar baixa nessas compras") }
+            return
+        }
         viewModelScope.launch {
-            runCatching { repository.pagarTransacoes(pendentes) }
-                .onSuccess { _mensagens.emit("Fatura paga — saldo atualizado") }
+            runCatching { repository.pagarTransacoes(minhas) }
+                .onSuccess {
+                    _mensagens.emit(
+                        if (minhas.size < pendentes.size) {
+                            "Suas compras foram pagas — as dos outros membros ficam com quem lançou"
+                        } else {
+                            "Fatura paga — saldo atualizado"
+                        }
+                    )
+                }
                 .onFailure { _mensagens.emit("Erro ao pagar a fatura") }
         }
     }
 
     /** Alterna esconder/reexibir da visão Membros (só faz sentido no pessoal). */
     fun alternarOculto(transacao: Transacao) {
+        if (!podeEditar(transacao)) {
+            viewModelScope.launch { _mensagens.emit("Só quem lançou pode esconder esta transação") }
+            return
+        }
         viewModelScope.launch {
             runCatching { repository.ocultarTransacao(transacao, !transacao.oculto) }
                 .onSuccess {

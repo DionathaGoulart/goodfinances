@@ -7,6 +7,7 @@ import com.finapp.data.db.CategoriaDao
 import com.finapp.data.db.ContaAgendadaDao
 import com.finapp.data.db.MetaDao
 import com.finapp.data.db.TransacaoDao
+import com.finapp.data.db.TransacaoRecorrenteDao
 import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.ContaAgendada
@@ -66,11 +67,25 @@ class SyncManager @Inject constructor(
     private val categoriaDao: CategoriaDao,
     private val cartaoDao: CartaoDao,
     private val metaDao: MetaDao,
-    private val contaAgendadaDao: ContaAgendadaDao
+    private val contaAgendadaDao: ContaAgendadaDao,
+    private val transacaoRecorrenteDao: TransacaoRecorrenteDao
 ) {
     private val db = FirebaseFirestore.getInstance()
     private val prefs = context.getSharedPreferences("finapp_prefs", Context.MODE_PRIVATE)
     private val escopo = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Relógio local — teto da marca de push (protege contra skew remoto). */
+    private fun agora() = System.currentTimeMillis()
+
+    /**
+     * Aplica um doc remoto tolerando falha pontual (ex: dois snapshots
+     * concorrentes inserindo o mesmo uuid violam o índice único) — um doc
+     * ruim não pode derrubar o app nem abortar o restante do lote.
+     */
+    private suspend fun aplicarComProtecao(bloco: suspend () -> Unit) {
+        runCatching { bloco() }
+            .onFailure { android.util.Log.w("SyncManager", "Falha ao aplicar doc remoto", it) }
+    }
 
     private val trabalhosCasa = mutableListOf<Job>()
     private val listenersCasa = mutableListOf<ListenerRegistration>()
@@ -154,14 +169,16 @@ class SyncManager @Inject constructor(
                     if (mudancas.isNotEmpty()) {
                         escopo.launch {
                             mudancas.forEach { mudanca ->
-                                if (mudanca.type == DocumentChange.Type.REMOVED) {
-                                    transacaoDao.deletarPorUuidEPerfil(
-                                        mudanca.document.id, Perfil.CASA_MEMBROS
-                                    )
-                                } else {
-                                    aplicarTransacaoRemota(
-                                        mudanca.document, Perfil.CASA_MEMBROS
-                                    )
+                                aplicarComProtecao {
+                                    if (mudanca.type == DocumentChange.Type.REMOVED) {
+                                        transacaoDao.deletarPorUuidEPerfil(
+                                            mudanca.document.id, Perfil.CASA_MEMBROS
+                                        )
+                                    } else {
+                                        aplicarTransacaoRemota(
+                                            mudanca.document, Perfil.CASA_MEMBROS
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -326,7 +343,7 @@ class SyncManager @Inject constructor(
                 .filter { it.type != DocumentChange.Type.REMOVED }
                 .map { it.document }
             if (docs.isNotEmpty()) {
-                escopo.launch { docs.forEach { aplicarCartaoRemoto(it, perfil) } }
+                escopo.launch { docs.forEach { aplicarComProtecao { aplicarCartaoRemoto(it, perfil) } } }
             }
         }
         trabalhos += escopo.launch {
@@ -352,7 +369,7 @@ class SyncManager @Inject constructor(
                 .filter { it.type != DocumentChange.Type.REMOVED }
                 .map { it.document }
             if (docs.isNotEmpty()) {
-                escopo.launch { docs.forEach { aplicarMetaRemota(it, perfil) } }
+                escopo.launch { docs.forEach { aplicarComProtecao { aplicarMetaRemota(it, perfil) } } }
             }
         }
         trabalhos += escopo.launch {
@@ -376,7 +393,7 @@ class SyncManager @Inject constructor(
                 .filter { it.type != DocumentChange.Type.REMOVED }
                 .map { it.document }
             if (docs.isNotEmpty()) {
-                escopo.launch { docs.forEach { aplicarContaRemota(it, perfil) } }
+                escopo.launch { docs.forEach { aplicarComProtecao { aplicarContaRemota(it, perfil) } } }
             }
         }
         trabalhos += escopo.launch {
@@ -403,7 +420,7 @@ class SyncManager @Inject constructor(
                 .filter { it.type != DocumentChange.Type.REMOVED }
                 .map { it.document }
             if (docs.isNotEmpty()) {
-                escopo.launch { docs.forEach { aplicarTransacaoRemota(it, perfil) } }
+                escopo.launch { docs.forEach { aplicarComProtecao { aplicarTransacaoRemota(it, perfil) } } }
             }
         }
         listeners += categorias.addSnapshotListener { snapshot, erro ->
@@ -412,7 +429,7 @@ class SyncManager @Inject constructor(
                 .filter { it.type != DocumentChange.Type.REMOVED }
                 .map { it.document }
             if (docs.isNotEmpty()) {
-                escopo.launch { docs.forEach { aplicarCategoriaRemota(it, perfil) } }
+                escopo.launch { docs.forEach { aplicarComProtecao { aplicarCategoriaRemota(it, perfil) } } }
             }
         }
 
@@ -500,8 +517,12 @@ class SyncManager @Inject constructor(
             batch.commit()
         }
         // A marca avança sobre TODAS as linhas listadas: docs de outros
-        // autores nunca serão empurrados, não precisam ser re-listados
-        prefs.edit { putLong(chaveMarca, todas.maxOf { it.atualizadoEm }) }
+        // autores nunca serão empurrados, não precisam ser re-listados.
+        // Limitada ao relógio LOCAL: uma linha puxada de um aparelho com
+        // relógio adiantado tem `atualizadoEm` no futuro; sem o teto, a marca
+        // saltaria à frente e engoliria em silêncio tudo que eu editasse até
+        // meu relógio alcançá-la.
+        prefs.edit { putLong(chaveMarca, minOf(todas.maxOf { it.atualizadoEm }, agora())) }
     }
 
     private suspend fun empurrarCategorias(
@@ -531,7 +552,7 @@ class SyncManager @Inject constructor(
             }
             batch.commit()
         }
-        prefs.edit { putLong(chaveMarca, modificadas.maxOf { it.atualizadoEm }) }
+        prefs.edit { putLong(chaveMarca, minOf(modificadas.maxOf { it.atualizadoEm }, agora())) }
     }
 
     private suspend fun empurrarCartoes(
@@ -560,7 +581,7 @@ class SyncManager @Inject constructor(
             }
             batch.commit()
         }
-        prefs.edit { putLong(chaveMarca, modificadas.maxOf { it.atualizadoEm }) }
+        prefs.edit { putLong(chaveMarca, minOf(modificadas.maxOf { it.atualizadoEm }, agora())) }
     }
 
     private suspend fun empurrarMetas(
@@ -590,7 +611,7 @@ class SyncManager @Inject constructor(
             }
             batch.commit()
         }
-        prefs.edit { putLong(chaveMarca, modificadas.maxOf { it.atualizadoEm }) }
+        prefs.edit { putLong(chaveMarca, minOf(modificadas.maxOf { it.atualizadoEm }, agora())) }
     }
 
     private suspend fun empurrarContas(
@@ -621,7 +642,7 @@ class SyncManager @Inject constructor(
             }
             batch.commit()
         }
-        prefs.edit { putLong(chaveMarca, modificadas.maxOf { it.atualizadoEm }) }
+        prefs.edit { putLong(chaveMarca, minOf(modificadas.maxOf { it.atualizadoEm }, agora())) }
     }
 
     // ---------- PULL ----------
@@ -740,6 +761,20 @@ class SyncManager @Inject constructor(
             deletado = doc.getBoolean("deletado") ?: false
         )
         if (local == null) categoriaDao.inserir(categoria) else categoriaDao.atualizar(categoria)
+
+        // Rename vindo de outro membro da Casa: quem renomeou só conseguiu
+        // re-carimbar as PRÓPRIAS transações (regras negam as alheias) —
+        // cada aparelho renomeia aqui as suas (e as antigas sem autor),
+        // que então propagam normalmente pelo push.
+        if (perfil == Perfil.CASA && local != null && !local.deletado && local.nome != nome) {
+            val momento = agora()
+            val meuUid = casaManager.usuario.value?.uid
+            if (!meuUid.isNullOrBlank()) {
+                transacaoDao.renomearCategoriaDoAutor(perfil, local.nome, nome, momento, meuUid)
+            }
+            transacaoDao.renomearCategoriaDoAutor(perfil, local.nome, nome, momento, uid = "")
+            transacaoRecorrenteDao.renomearCategoria(perfil, local.nome, nome, momento)
+        }
     }
 
     private suspend fun aplicarCartaoRemoto(doc: DocumentSnapshot, perfil: Perfil) {

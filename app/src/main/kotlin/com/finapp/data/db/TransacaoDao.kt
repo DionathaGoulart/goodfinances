@@ -70,6 +70,19 @@ interface TransacaoDao {
     )
     suspend fun marcarTodasDeletadas(perfil: Perfil, agora: Long)
 
+    /**
+     * Limpeza na Casa: tombstona só os lançamentos DESTE autor. Apagar os dos
+     * outros membros ficaria só neste aparelho (push filtra por autor, regras
+     * negam) e o carimbo novo ainda bloquearia pulls futuros deles.
+     */
+    @Query(
+        """
+        UPDATE Transacao SET deletado = 1, atualizadoEm = :agora
+        WHERE perfil = :perfil AND deletado = 0 AND criadoPorUid = :uid
+        """
+    )
+    suspend fun marcarMinhasDeletadas(perfil: Perfil, uid: String, agora: Long)
+
     /** Nomes de arquivo de nota fiscal referenciados (todos os perfis). */
     @Query("SELECT notaFiscal FROM Transacao WHERE notaFiscal != ''")
     suspend fun listarNotasFiscais(): List<String>
@@ -217,5 +230,25 @@ interface TransacaoDao {
         nomeAntigo: String,
         novoNome: String,
         agora: Long
+    )
+
+    /**
+     * Rename na Casa: propaga o nome só nos MEUS lançamentos. Re-carimbar os
+     * dos outros membros os deixaria com nome novo só aqui (push/regras negam)
+     * e o carimbo bloquearia pulls futuros deles — categorias por nome exigem
+     * que cada aparelho renomeie o próprio histórico ao receber a categoria.
+     */
+    @Query(
+        """
+        UPDATE Transacao SET categoria = :novoNome, atualizadoEm = :agora
+        WHERE categoria = :nomeAntigo AND perfil = :perfil AND criadoPorUid = :uid
+        """
+    )
+    suspend fun renomearCategoriaDoAutor(
+        perfil: Perfil,
+        nomeAntigo: String,
+        novoNome: String,
+        agora: Long,
+        uid: String
     )
 }

@@ -24,6 +24,7 @@ import com.finapp.data.io.ImportManager
 import com.finapp.data.io.NotaFiscalManager
 import com.finapp.data.notif.NotificacaoManager
 import com.finapp.data.repository.FinanceRepository
+import com.finapp.data.sync.CasaManager
 import com.finapp.data.sync.SyncManager
 import com.finapp.utils.CorApp
 import com.finapp.utils.EscalaFonte
@@ -58,7 +59,8 @@ class ConfigViewModel @Inject constructor(
     private val segurancaManager: SegurancaManager,
     private val syncManager: SyncManager,
     private val driveBackupManager: DriveBackupManager,
-    private val notificacaoManager: NotificacaoManager
+    private val notificacaoManager: NotificacaoManager,
+    private val casaManager: CasaManager
 ) : ViewModel() {
 
     // ---------- Notificações ----------
@@ -245,12 +247,7 @@ class ConfigViewModel @Inject constructor(
             return
         }
 
-        val hoje = LocalDate.now()
-        val proximo = if (hoje.dayOfMonth <= configuracao.diaRecebimento) {
-            hoje.withDayOfMonth(configuracao.diaRecebimento)
-        } else {
-            hoje.plusMonths(1).withDayOfMonth(configuracao.diaRecebimento)
-        }
+        val proximo = proximoLancamentoMensal(configuracao.diaRecebimento, existente)
 
         if (existente == null) {
             repository.inserirRecorrente(
@@ -261,6 +258,7 @@ class ConfigViewModel @Inject constructor(
                     descricao = DESCRICAO_SALARIO,
                     frequencia = Frequencia.MENSAL,
                     proximoLancamento = proximo,
+                    diaMensal = configuracao.diaRecebimento,
                     perfil = perfil
                 )
             )
@@ -268,10 +266,33 @@ class ConfigViewModel @Inject constructor(
             repository.atualizarRecorrente(
                 existente.copy(
                     valor = configuracao.salarioFixo,
-                    proximoLancamento = proximo
+                    proximoLancamento = proximo,
+                    diaMensal = configuracao.diaRecebimento
                 )
             )
         }
+    }
+
+    /**
+     * Próxima data de lançamento de uma recorrência mensal no [dia] pedido.
+     * Se a recorrência [existente] JÁ lançou hoje (o agendamento dela está no
+     * futuro e o dia pedido é hoje), pula para o mês seguinte — reagendar
+     * para hoje lançaria a mesma ocorrência de novo (salário/DAS duplicado).
+     */
+    private fun proximoLancamentoMensal(
+        dia: Int,
+        existente: TransacaoRecorrente?
+    ): LocalDate {
+        val hoje = LocalDate.now()
+        val candidato = if (hoje.dayOfMonth <= dia) {
+            hoje.withDayOfMonth(dia)
+        } else {
+            hoje.plusMonths(1).withDayOfMonth(dia)
+        }
+        val jaLancouHoje = candidato == hoje &&
+            existente != null &&
+            existente.proximoLancamento.isAfter(hoje)
+        return if (jaLancouHoje) candidato.plusMonths(1) else candidato
     }
 
     /**
@@ -315,12 +336,7 @@ class ConfigViewModel @Inject constructor(
             return
         }
 
-        val hoje = LocalDate.now()
-        val proximo = if (hoje.dayOfMonth <= DIA_DAS) {
-            hoje.withDayOfMonth(DIA_DAS)
-        } else {
-            hoje.plusMonths(1).withDayOfMonth(DIA_DAS)
-        }
+        val proximo = proximoLancamentoMensal(DIA_DAS, existente)
 
         if (existente == null) {
             repository.inserirRecorrente(
@@ -331,12 +347,17 @@ class ConfigViewModel @Inject constructor(
                     descricao = DESCRICAO_DAS,
                     frequencia = Frequencia.MENSAL,
                     proximoLancamento = proximo,
+                    diaMensal = DIA_DAS,
                     perfil = perfil
                 )
             )
         } else {
             repository.atualizarRecorrente(
-                existente.copy(valor = valorCentavos, proximoLancamento = proximo)
+                existente.copy(
+                    valor = valorCentavos,
+                    proximoLancamento = proximo,
+                    diaMensal = DIA_DAS
+                )
             )
         }
     }
@@ -472,7 +493,10 @@ class ConfigViewModel @Inject constructor(
                 return@launch
             }
             runCatching {
-                repository.renomearCategoria(categoria, nomeLimpo, novaCor, novoOrcamentoCentavos)
+                repository.renomearCategoria(
+                    categoria, nomeLimpo, novaCor, novoOrcamentoCentavos,
+                    autorUid = casaManager.usuario.value?.uid
+                )
             }
                 .onSuccess { emitir("Categoria atualizada") }
                 .onFailure { emitir("Erro ao atualizar categoria") }
@@ -710,11 +734,22 @@ class ConfigViewModel @Inject constructor(
                 } else {
                     listOf(perfilDados.value)
                 }
+                val meuUid = casaManager.usuario.value?.uid
                 baldes.forEach { balde ->
-                    // Apaga também os arquivos de nota fiscal do balde
-                    repository.listarTransacoes(balde)
-                        .forEach { notaFiscalManager.apagar(it.notaFiscal) }
-                    repository.deletarTodasTransacoes(balde)
+                    if (balde == Perfil.CASA && !meuUid.isNullOrBlank()) {
+                        // Na Casa, apaga só os MEUS lançamentos (e as minhas
+                        // notas): limpar tudo propagaria a deleção da carteira
+                        // dos outros membros para todos os aparelhos.
+                        repository.listarTransacoes(balde)
+                            .filter { it.criadoPorUid == meuUid }
+                            .forEach { notaFiscalManager.apagar(it.notaFiscal) }
+                        repository.limparMinhasTransacoesCasa(meuUid)
+                    } else {
+                        // Apaga também os arquivos de nota fiscal do balde
+                        repository.listarTransacoes(balde)
+                            .forEach { notaFiscalManager.apagar(it.notaFiscal) }
+                        repository.deletarTodasTransacoes(balde)
+                    }
                     repository.deletarTodasMetas(balde)
                     repository.deletarTodasContas(balde)
                 }

@@ -63,7 +63,12 @@ class MembrosViewModel @Inject constructor(
             emptyList()
         } else {
             val nome = usuario?.nome?.substringBefore(' ')?.ifBlank { null } ?: "Você"
-            (pf + meiPessoal).map { it.copy(criadoPor = "$nome (você)") }
+            (pf + meiPessoal)
+                // Espelha o MESMO filtro do push (SyncManager): itens ocultos
+                // não vão para os outros membros — sem filtrar aqui, meu
+                // resumo os incluiria e os totais divergiriam entre aparelhos.
+                .filter { !it.oculto }
+                .map { it.copy(criadoPor = "$nome (você)") }
         }
     }
 
@@ -104,6 +109,9 @@ class MembrosViewModel @Inject constructor(
         val mes = YearMonth.from(hoje)
         (minhas + dosOutros)
             .filter { YearMonth.from(it.data) == mes }
+            // Transferência entre contextos só move saldo — contá-la aqui
+            // inflaria o "gasto"/"ganho" do membro (mesma regra das somas SQL)
+            .filter { it.categoria != FinanceRepository.NOME_TRANSFERENCIA }
             .groupBy { it.criadoPor.ifBlank { "Sem nome" } }
             .map { (nome, lista) ->
                 ResumoMembro(
