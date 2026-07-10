@@ -284,10 +284,13 @@ class ConfigViewModel @Inject constructor(
         existente: TransacaoRecorrente?
     ): LocalDate {
         val hoje = LocalDate.now()
+        // Dia 29-31 em mês curto cai no último dia (o diaMensal preserva a
+        // intenção para os meses seguintes)
         val candidato = if (hoje.dayOfMonth <= dia) {
-            hoje.withDayOfMonth(dia)
+            hoje.withDayOfMonth(dia.coerceAtMost(hoje.lengthOfMonth()))
         } else {
-            hoje.plusMonths(1).withDayOfMonth(dia)
+            val proximoMes = hoje.plusMonths(1)
+            proximoMes.withDayOfMonth(dia.coerceAtMost(proximoMes.lengthOfMonth()))
         }
         val jaLancouHoje = candidato == hoje &&
             existente != null &&
@@ -361,6 +364,43 @@ class ConfigViewModel @Inject constructor(
             )
         }
     }
+
+    /**
+     * Edita valor e (nas mensais) o dia de lançamento de uma recorrência.
+     * Salário fixo e DAS são gerenciados pelos campos próprios da Config —
+     * a UI não abre este fluxo para eles (manteria dois donos do mesmo dado).
+     */
+    fun editarRecorrente(recorrente: TransacaoRecorrente, valorCentavos: Long, dia: Int) {
+        if (valorCentavos <= 0L) {
+            emitir("Informe um valor maior que zero")
+            return
+        }
+        val mensal = recorrente.frequencia == Frequencia.MENSAL
+        if (mensal && dia !in 1..31) {
+            emitir("Dia deve estar entre 1 e 31")
+            return
+        }
+        viewModelScope.launch {
+            runCatching {
+                val atualizada = if (mensal && dia != recorrente.diaMensal) {
+                    recorrente.copy(
+                        valor = valorCentavos,
+                        diaMensal = dia,
+                        proximoLancamento = proximoLancamentoMensal(dia, recorrente)
+                    )
+                } else {
+                    recorrente.copy(valor = valorCentavos)
+                }
+                repository.atualizarRecorrente(atualizada)
+            }
+                .onSuccess { emitir("Recorrência atualizada") }
+                .onFailure { emitir("Erro ao atualizar recorrência") }
+        }
+    }
+
+    /** True para recorrências gerenciadas pelos campos Salário/DAS da Config. */
+    fun ehRecorrenteGerenciada(recorrente: TransacaoRecorrente): Boolean =
+        recorrente.descricao == DESCRICAO_SALARIO || recorrente.descricao == DESCRICAO_DAS
 
     fun encerrarRecorrente(recorrente: TransacaoRecorrente) {
         viewModelScope.launch {

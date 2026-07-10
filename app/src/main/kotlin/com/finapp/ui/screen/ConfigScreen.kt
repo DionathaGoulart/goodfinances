@@ -80,8 +80,10 @@ import com.finapp.BuildConfig
 import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
 import com.finapp.data.db.entities.Perfil
+import com.finapp.data.db.entities.Frequencia
 import com.finapp.data.db.entities.TipoEmpresa
 import com.finapp.data.db.entities.TipoTransacao
+import com.finapp.data.db.entities.TransacaoRecorrente
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.CorApp
 import com.finapp.utils.CoresCategorias
@@ -127,6 +129,7 @@ fun ConfigScreen(
     var cartaoParaRemover by remember { mutableStateOf<Cartao?>(null) }
     var dialogCategoriaAberto by remember { mutableStateOf(false) }
     var categoriaEmEdicao by remember { mutableStateOf<Categoria?>(null) }
+    var recorrenteEmEdicao by remember { mutableStateOf<TransacaoRecorrente?>(null) }
     var confirmarLimpezaAberto by remember { mutableStateOf(false) }
 
     // Mensagens dos ViewModels viram snackbar (mesmo padrão das outras telas)
@@ -429,9 +432,24 @@ fun ConfigScreen(
                     )
                 } else {
                     recorrentes.forEach { recorrente ->
+                        val gerenciada = viewModel.ehRecorrenteGerenciada(recorrente)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clickable {
+                                    if (gerenciada) {
+                                        // Salário/DAS têm campo próprio na Config:
+                                        // dois pontos de edição dessincronizariam
+                                        escopo.launch {
+                                            snackbarHostState.showSnackbar(
+                                                "Edite pelo campo " +
+                                                    "\"${recorrente.descricao}\" acima"
+                                            )
+                                        }
+                                    } else {
+                                        recorrenteEmEdicao = recorrente
+                                    }
+                                }
                                 .padding(vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -443,7 +461,8 @@ fun ConfigScreen(
                                 )
                                 Text(
                                     text = "${Formatadores.moeda(recorrente.valor)} · " +
-                                        "próx. ${Formatadores.dataCurta(recorrente.proximoLancamento)}",
+                                        "próx. ${Formatadores.dataCurta(recorrente.proximoLancamento)}" +
+                                        if (gerenciada) "" else " · toque para editar",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1201,6 +1220,78 @@ fun ConfigScreen(
             },
             dismissButton = {
                 TextButton(onClick = { cartaoParaRemover = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // ---------- Dialog: editar recorrência ----------
+    recorrenteEmEdicao?.let { recorrente ->
+        var valorTexto by remember(recorrente.id) {
+            mutableStateOf(String.format(Locale.US, "%.2f", recorrente.valor / 100.0))
+        }
+        var diaTexto by remember(recorrente.id) {
+            mutableStateOf(recorrente.diaMensal.takeIf { it in 1..31 }?.toString() ?: "")
+        }
+        var erroValor by remember(recorrente.id) { mutableStateOf<String?>(null) }
+        var erroDia by remember(recorrente.id) { mutableStateOf<String?>(null) }
+        val mensal = recorrente.frequencia == Frequencia.MENSAL
+
+        AlertDialog(
+            onDismissRequest = { recorrenteEmEdicao = null },
+            title = { Text(recorrente.descricao.ifBlank { recorrente.categoria }) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = valorTexto,
+                        onValueChange = {
+                            valorTexto = it
+                            erroValor = null
+                        },
+                        label = { Text("Valor (R$)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        isError = erroValor != null,
+                        supportingText = { erroValor?.let { Text(it) } }
+                    )
+                    if (mensal) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = diaTexto,
+                            onValueChange = {
+                                diaTexto = it.filter(Char::isDigit).take(2)
+                                erroDia = null
+                            },
+                            label = { Text("Dia do lançamento (1 a 31)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            isError = erroDia != null,
+                            supportingText = { erroDia?.let { Text(it) } }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val centavos = reaisParaCentavos(valorTexto)
+                        val dia = if (mensal) diaTexto.toIntOrNull() ?: 0 else recorrente.diaMensal
+                        when {
+                            centavos <= 0L -> erroValor = "Informe um valor maior que zero"
+                            mensal && dia !in 1..31 -> erroDia = "Dia deve estar entre 1 e 31"
+                            else -> {
+                                viewModel.editarRecorrente(recorrente, centavos, dia)
+                                recorrenteEmEdicao = null
+                            }
+                        }
+                    }
+                ) {
+                    Text("Salvar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { recorrenteEmEdicao = null }) {
                     Text("Cancelar")
                 }
             }
