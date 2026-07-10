@@ -22,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.drawText
@@ -30,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.finapp.ui.theme.GreenPrimary
 import com.finapp.ui.theme.RedExpense
-import com.finapp.ui.theme.TextSecondary
 import com.finapp.utils.Formatadores
 import com.finapp.viewmodel.ValorMensal
 import java.time.format.DateTimeFormatter
@@ -52,9 +53,17 @@ fun GraficoBarras(
     }
     val medidorTexto = rememberTextMeasurer()
     val estiloRotulo = MaterialTheme.typography.labelSmall.copy(
-        fontSize = 9.sp,
-        color = TextSecondary
+        fontSize = 10.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
     )
+    // Resumo textual do gráfico para leitores de tela (TalkBack)
+    val resumoAcessivel = remember(series) {
+        series.joinToString(prefix = "Gráfico de barras. ", separator = "; ") { mes ->
+            "${mes.mes.format(formatoMes).uppercase(Formatadores.LOCALE_BR)}: " +
+                "ganhos ${Formatadores.moeda(mes.ganhos)}, " +
+                "gastos ${Formatadores.moeda(mes.gastos)}"
+        }
+    }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Canvas(
@@ -62,6 +71,7 @@ fun GraficoBarras(
                 .fillMaxWidth()
                 .height(180.dp)
                 .padding(top = 16.dp)
+                .semantics { contentDescription = resumoAcessivel }
         ) {
             val larguraGrupo = size.width / series.size
             val larguraBarra = larguraGrupo * 0.28f

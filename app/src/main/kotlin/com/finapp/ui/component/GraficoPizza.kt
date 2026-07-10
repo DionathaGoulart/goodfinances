@@ -35,6 +35,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.finapp.utils.Formatadores
 import com.finapp.viewmodel.FatiaPizza
@@ -84,18 +86,32 @@ fun GraficoPizza(
         progresso.animateTo(1f, tween(durationMillis = 800, easing = FastOutSlowInEasing))
     }
 
+    // Resumo textual do gráfico para leitores de tela (TalkBack)
+    val resumoAcessivel = remember(fatias) {
+        fatias.joinToString(prefix = "Gráfico de pizza. ", separator = "; ") { fatia ->
+            val percentual = fatia.valor / total * 100
+            "${fatia.nome}: " +
+                "${String.format(Formatadores.LOCALE_BR, "%.0f", percentual)}%, " +
+                Formatadores.moeda(fatia.valor)
+        }
+    }
+
     Column(modifier = modifier.fillMaxWidth()) {
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
+                .semantics { contentDescription = resumoAcessivel }
                 .pointerInput(fatias) {
                     detectTapGestures { toque ->
                         val centro = Offset(size.width / 2f, size.height / 2f)
                         val raio = min(size.width, size.height) / 2f
                         val dx = toque.x - centro.x
                         val dy = toque.y - centro.y
-                        if (sqrt(dx * dx + dy * dy) > raio) {
+                        val distancia = sqrt(dx * dx + dy * dy)
+                        // Fora da rosca não seleciona: além da borda externa
+                        // ou dentro do furo central (0.55 do raio, igual ao desenho)
+                        if (distancia > raio || distancia < raio * 0.55f) {
                             selecionada = -1
                             return@detectTapGestures
                         }
@@ -196,7 +212,8 @@ fun GraficoPizza(
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "${fatia.nome} " +
-                            "(${String.format(Formatadores.LOCALE_BR, "%.0f", percentual)}%)",
+                            "(${String.format(Formatadores.LOCALE_BR, "%.0f", percentual)}%) · " +
+                            Formatadores.moeda(fatia.valor),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

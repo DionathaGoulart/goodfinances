@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
@@ -59,7 +60,9 @@ fun TransacaoItem(
     corFundo: Color? = null,
     corCategoria: Color? = null,
     onClick: (() -> Unit)? = null,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    onClickLabel: String? = null,
+    onLongClickLabel: String? = null
 ) {
     val cor = when (transacao.tipo) {
         TipoTransacao.GANHO -> GreenPrimary
@@ -80,7 +83,9 @@ fun TransacaoItem(
                 when {
                     onClick != null || onLongClick != null -> it.combinedClickable(
                         onClick = { onClick?.invoke() },
-                        onLongClick = onLongClick
+                        onClickLabel = onClickLabel,
+                        onLongClick = onLongClick,
+                        onLongClickLabel = onLongClickLabel
                     )
                     else -> it
                 }
@@ -97,7 +102,8 @@ fun TransacaoItem(
         ) {
             Icon(
                 imageVector = icone,
-                contentDescription = transacao.tipo.name,
+                // O sinal +/− junto ao valor já comunica o tipo no nó mesclado
+                contentDescription = null,
                 tint = corIcone,
                 modifier = Modifier.size(18.dp)
             )
@@ -110,7 +116,8 @@ fun TransacaoItem(
                 text = transacao.descricao.ifBlank { transacao.categoria },
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             // No perfil Casa mostra quem lançou (primeiro nome)
             val autor = transacao.criadoPor.substringBefore(' ')
@@ -177,7 +184,9 @@ fun TransacaoItem(
                 text = "$sinal ${Formatadores.moeda(transacao.valor)}",
                 style = MaterialTheme.typography.titleMedium,
                 // Pendente fica esmaecido: ainda não saiu do saldo
-                color = if (transacao.pago) cor else cor.copy(alpha = 0.55f)
+                // (alpha alto o bastante para manter contraste legível;
+                // o ícone de relógio já sinaliza a pendência)
+                color = if (transacao.pago) cor else cor.copy(alpha = 0.85f)
             )
             if (mostrarData) {
                 Text(
@@ -222,11 +231,13 @@ fun TransacaoLinha(
             corFundo = corFundo,
             corCategoria = corCategoria,
             onClick = { if (podeEditar) onEditar(transacao) else onBloqueado() },
+            onClickLabel = if (podeEditar) "Editar" else "Ver opções",
             onLongClick = if (temMenu) {
                 { menuAberto = true }
             } else {
                 null
-            }
+            },
+            onLongClickLabel = if (temMenu) "Abrir menu de ações" else null
         )
 
         DropdownMenu(
