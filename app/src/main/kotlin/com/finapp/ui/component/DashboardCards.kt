@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -26,22 +28,24 @@ import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
 
 /**
- * Card principal do Dashboard com o saldo em destaque (centavos).
- * O toque alterna entre saldo total e saldo do mês (controlado pelo chamador).
- * [aPagarMes] > 0 mostra as pendências do mês (fatura, recorrências ainda não
- * pagas) e quanto sobra do saldo depois de pagar tudo.
+ * Card principal do Dashboard: saldo total em destaque e, abaixo de uma
+ * divisória, uma faixa fina com o resumo do mês (entrou/saiu) e as pendências
+ * ("a pagar" → quanto sobra depois de pagar tudo).
+ * [mostrarResumoMes] liga a linha "Este mês +ganhos −gastos" (contextos
+ * pessoais); no contexto de empresa, os cards Receita/Despesa já cobrem isso.
  */
 @Composable
 fun SaldoCard(
-    saldo: Long,
+    saldoTotal: Long,
+    ganhosMes: Long,
+    gastosMes: Long,
     modifier: Modifier = Modifier,
     rotulo: String = "SALDO TOTAL",
     aPagarMes: Long = 0L,
     saldoAposPagar: Long = 0L,
-    onClick: () -> Unit = {}
+    mostrarResumoMes: Boolean = true
 ) {
     Card(
-        onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -50,23 +54,62 @@ fun SaldoCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 32.dp, horizontal = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(vertical = 20.dp, horizontal = 20.dp)
         ) {
             Text(
                 text = rotulo,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = Formatadores.moeda(saldo),
-                style = MaterialTheme.typography.displayLarge,
-                color = MaterialTheme.colorScheme.onSurface
+                text = Formatadores.moeda(saldoTotal),
+                style = MaterialTheme.typography.displayMedium,
+                color = if (saldoTotal >= 0L) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    RedExpense
+                }
             )
-            if (aPagarMes > 0L) {
+
+            // Faixa de resumo do mês, só quando há algo a mostrar
+            if (mostrarResumoMes || aPagarMes > 0L) {
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 Spacer(modifier = Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            }
+
+            if (mostrarResumoMes) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Este mês",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    ValorAssinado(
+                        icone = Icons.Filled.ArrowUpward,
+                        valor = ganhosMes,
+                        cor = GreenPrimary
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    ValorAssinado(
+                        icone = Icons.Filled.ArrowDownward,
+                        valor = gastosMes,
+                        cor = RedExpense
+                    )
+                }
+            }
+
+            if (aPagarMes > 0L) {
+                if (mostrarResumoMes) Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Filled.Schedule,
                         contentDescription = null,
@@ -75,18 +118,42 @@ fun SaldoCard(
                     )
                     Spacer(modifier = Modifier.size(6.dp))
                     Text(
-                        text = "A pagar no mês: ${Formatadores.moeda(aPagarMes)}",
+                        text = "A pagar ${Formatadores.moeda(aPagarMes)}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "sobra ${Formatadores.moeda(saldoAposPagar)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (saldoAposPagar >= 0L) GreenPrimary else RedExpense
                     )
                 }
-                Text(
-                    text = "Após pagar tudo: ${Formatadores.moeda(saldoAposPagar)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (saldoAposPagar >= 0L) GreenPrimary else RedExpense
-                )
             }
         }
+    }
+}
+
+/** Ícone + valor colorido (usado na faixa de resumo do mês do SaldoCard). */
+@Composable
+private fun ValorAssinado(
+    icone: androidx.compose.ui.graphics.vector.ImageVector,
+    valor: Long,
+    cor: androidx.compose.ui.graphics.Color
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = icone,
+            contentDescription = null,
+            tint = cor,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(2.dp))
+        Text(
+            text = Formatadores.moeda(valor),
+            style = MaterialTheme.typography.bodyLarge,
+            color = cor
+        )
     }
 }
 

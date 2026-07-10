@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,6 +76,14 @@ import kotlin.math.roundToInt
 /** Qual card de estatística está com o detalhamento aberto. */
 private enum class DetalheEstatistica { GASTO_MEDIO, MAIOR_GASTO, MAIOR_GANHO, CATEGORIA_TOP }
 
+/** Sub-abas da Análise, para não empilhar tudo num scroll só. */
+private enum class SubAnalise(val rotulo: String) {
+    RESUMO("Resumo"),
+    CATEGORIAS("Categorias"),
+    GRAFICOS("Gráficos"),
+    FISCAL("Fiscal")
+}
+
 /** Tela de Análise: gráficos e estatísticas do período. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,6 +104,7 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
     var detalheAberto by remember { mutableStateOf<DetalheEstatistica?>(null) }
     var fatiaDetalhe by remember { mutableStateOf<FatiaPizza?>(null) }
     var faturaDetalhe by remember { mutableStateOf<Fatura?>(null) }
+    var subAbaIndice by rememberSaveable { mutableStateOf(0) }
 
     Column(
         modifier = Modifier
@@ -133,114 +143,139 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // ---------- Insights do mês (variação vs mês anterior) ----------
-        if (insights.isNotEmpty()) {
-            SecaoInsights(insights = insights)
-            Spacer(modifier = Modifier.height(20.dp))
+        // ---------- Sub-abas (Fiscal só aparece nos contextos de empresa) ----------
+        val abas = remember(painelFiscal) {
+            buildList {
+                add(SubAnalise.RESUMO)
+                add(SubAnalise.CATEGORIAS)
+                add(SubAnalise.GRAFICOS)
+                if (painelFiscal != null) add(SubAnalise.FISCAL)
+            }
         }
-
-        // ---------- Painel fiscal (só nos contextos de empresa) ----------
-        painelFiscal?.let { painel ->
-            PainelFiscalCard(painel = painel, tipoEmpresa = tipoEmpresa)
-            Spacer(modifier = Modifier.height(20.dp))
-        }
-
-        // ---------- Orçamentos do mês (categorias com teto definido) ----------
-        if (orcamentos.isNotEmpty()) {
-            SecaoOrcamentos(orcamentos = orcamentos)
-            Spacer(modifier = Modifier.height(20.dp))
-        }
-
-        // ---------- Faturas em aberto dos cartões ----------
-        if (faturas.isNotEmpty()) {
-            SecaoFaturas(faturas = faturas, onVerFatura = { faturaDetalhe = it })
-            Spacer(modifier = Modifier.height(20.dp))
-        }
-
-        // ---------- Pizza: ganhos/gastos por categoria ----------
-        val tituloPizza = if (tipoCategoria == TipoTransacao.GASTO) {
-            "GASTOS POR CATEGORIA"
-        } else {
-            "GANHOS POR CATEGORIA"
-        }
-        SecaoGrafico(titulo = tituloPizza) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val subAba = abas.getOrElse(subAbaIndice) { SubAnalise.RESUMO }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            abas.forEach { aba ->
                 FilterChip(
-                    selected = tipoCategoria == TipoTransacao.GASTO,
-                    onClick = { viewModel.alterarTipoCategoria(TipoTransacao.GASTO) },
-                    label = { Text("Gastos") }
-                )
-                FilterChip(
-                    selected = tipoCategoria == TipoTransacao.GANHO,
-                    onClick = { viewModel.alterarTipoCategoria(TipoTransacao.GANHO) },
-                    label = { Text("Ganhos") }
+                    selected = subAba == aba,
+                    onClick = { subAbaIndice = abas.indexOf(aba) },
+                    label = { Text(aba.rotulo) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = BluAccent,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 )
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            GraficoPizza(
-                fatias = fatias,
-                onVerCategoria = { nome ->
-                    fatiaDetalhe = fatias.firstOrNull { it.nome == nome }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        when (subAba) {
+            // ---------- Resumo: insights + orçamentos + estatísticas ----------
+            SubAnalise.RESUMO -> {
+                if (insights.isNotEmpty()) {
+                    SecaoInsights(insights = insights)
+                    Spacer(modifier = Modifier.height(20.dp))
                 }
-            )
-        }
+                if (orcamentos.isNotEmpty()) {
+                    SecaoOrcamentos(orcamentos = orcamentos)
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+                Text(
+                    text = "ESTATÍSTICAS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    EstatisticaCard(
+                        titulo = "Gasto Médio Diário",
+                        valor = Formatadores.moeda(estatisticas.gastoMedioDiario),
+                        modifier = Modifier.weight(1f),
+                        onClick = { detalheAberto = DetalheEstatistica.GASTO_MEDIO }
+                    )
+                    EstatisticaCard(
+                        titulo = "Maior Gasto",
+                        valor = estatisticas.maiorGasto?.let { Formatadores.moeda(it.valor) } ?: "—",
+                        detalhe = estatisticas.maiorGasto?.categoria,
+                        modifier = Modifier.weight(1f),
+                        onClick = { detalheAberto = DetalheEstatistica.MAIOR_GASTO }
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    EstatisticaCard(
+                        titulo = "Maior Ganho",
+                        valor = estatisticas.maiorGanho?.let { Formatadores.moeda(it.valor) } ?: "—",
+                        detalhe = estatisticas.maiorGanho?.categoria,
+                        modifier = Modifier.weight(1f),
+                        onClick = { detalheAberto = DetalheEstatistica.MAIOR_GANHO }
+                    )
+                    EstatisticaCard(
+                        titulo = "Categoria Top Gasto",
+                        valor = estatisticas.categoriaMaiorGasto ?: "—",
+                        modifier = Modifier.weight(1f),
+                        onClick = { detalheAberto = DetalheEstatistica.CATEGORIA_TOP }
+                    )
+                }
+            }
 
-        // ---------- Linha: ganhos vs gastos (6 meses) ----------
-        SecaoGrafico(titulo = "GANHOS VS GASTOS — ÚLTIMOS 6 MESES") {
-            GraficoLinha(series = series)
-        }
+            // ---------- Categorias: pizza + faturas dos cartões ----------
+            SubAnalise.CATEGORIAS -> {
+                val tituloPizza = if (tipoCategoria == TipoTransacao.GASTO) {
+                    "GASTOS POR CATEGORIA"
+                } else {
+                    "GANHOS POR CATEGORIA"
+                }
+                SecaoGrafico(titulo = tituloPizza) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = tipoCategoria == TipoTransacao.GASTO,
+                            onClick = { viewModel.alterarTipoCategoria(TipoTransacao.GASTO) },
+                            label = { Text("Gastos") }
+                        )
+                        FilterChip(
+                            selected = tipoCategoria == TipoTransacao.GANHO,
+                            onClick = { viewModel.alterarTipoCategoria(TipoTransacao.GANHO) },
+                            label = { Text("Ganhos") }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    GraficoPizza(
+                        fatias = fatias,
+                        onVerCategoria = { nome ->
+                            fatiaDetalhe = fatias.firstOrNull { it.nome == nome }
+                        }
+                    )
+                }
+                if (faturas.isNotEmpty()) {
+                    SecaoFaturas(faturas = faturas, onVerFatura = { faturaDetalhe = it })
+                }
+            }
 
-        // ---------- Barras: comparativo mensal ----------
-        SecaoGrafico(titulo = "COMPARATIVO MENSAL") {
-            GraficoBarras(series = series)
-        }
+            // ---------- Gráficos: evolução em 6 meses ----------
+            SubAnalise.GRAFICOS -> {
+                SecaoGrafico(titulo = "GANHOS VS GASTOS — ÚLTIMOS 6 MESES") {
+                    GraficoLinha(series = series)
+                }
+                SecaoGrafico(titulo = "COMPARATIVO MENSAL") {
+                    GraficoBarras(series = series)
+                }
+            }
 
-        // ---------- Estatísticas rápidas ----------
-        Text(
-            text = "ESTATÍSTICAS",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            EstatisticaCard(
-                titulo = "Gasto Médio Diário",
-                valor = Formatadores.moeda(estatisticas.gastoMedioDiario),
-                modifier = Modifier.weight(1f),
-                onClick = { detalheAberto = DetalheEstatistica.GASTO_MEDIO }
-            )
-            EstatisticaCard(
-                titulo = "Maior Gasto",
-                valor = estatisticas.maiorGasto?.let { Formatadores.moeda(it.valor) } ?: "—",
-                detalhe = estatisticas.maiorGasto?.categoria,
-                modifier = Modifier.weight(1f),
-                onClick = { detalheAberto = DetalheEstatistica.MAIOR_GASTO }
-            )
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            EstatisticaCard(
-                titulo = "Maior Ganho",
-                valor = estatisticas.maiorGanho?.let { Formatadores.moeda(it.valor) } ?: "—",
-                detalhe = estatisticas.maiorGanho?.categoria,
-                modifier = Modifier.weight(1f),
-                onClick = { detalheAberto = DetalheEstatistica.MAIOR_GANHO }
-            )
-            EstatisticaCard(
-                titulo = "Categoria Top Gasto",
-                valor = estatisticas.categoriaMaiorGasto ?: "—",
-                modifier = Modifier.weight(1f),
-                onClick = { detalheAberto = DetalheEstatistica.CATEGORIA_TOP }
-            )
+            // ---------- Fiscal: faturamento, limite do MEI e DAS ----------
+            SubAnalise.FISCAL -> {
+                painelFiscal?.let { painel ->
+                    PainelFiscalCard(painel = painel, tipoEmpresa = tipoEmpresa)
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))

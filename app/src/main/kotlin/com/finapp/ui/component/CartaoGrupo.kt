@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -72,31 +74,35 @@ fun agruparPorCartao(
 }
 
 /**
- * Cabeçalho expansível de um [GrupoCartao]: cor + nome do cartão, quantidade
- * de compras e total. Toque alterna [expandido] (o chamador lista os itens).
+ * Cartão de crédito como um card único: cabeçalho (cor + nome, nº de compras e
+ * total) e, quando [expandido], as próprias compras DENTRO da mesma moldura —
+ * separadas por uma divisória e recuadas, deixando claro que são daquele cartão.
+ * Toque no cabeçalho alterna [expandido]; os itens vêm do slot [itens] (o
+ * chamador renderiza cada [TransacaoLinha] com o fundo do card).
  * Com fatura pendente e [onPagarFatura] definido, mostra o botão que confirma
  * o pagamento de todas as compras do grupo (aí sim descontam do saldo).
  */
 @Composable
-fun CartaoGrupoCabecalho(
+fun CartaoGrupoCard(
     grupo: GrupoCartao,
     expandido: Boolean,
     onAlternar: () -> Unit,
     modifier: Modifier = Modifier,
-    onPagarFatura: (() -> Unit)? = null
+    onPagarFatura: (() -> Unit)? = null,
+    itens: @Composable ColumnScope.() -> Unit = {}
 ) {
     val cor = runCatching { Color(grupo.cor.toColorInt()) }
         .getOrDefault(MaterialTheme.colorScheme.primary)
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clickable(onClick = onAlternar),
+            .padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .clickable(onClick = onAlternar)
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -166,6 +172,17 @@ fun CartaoGrupoCabecalho(
                 style = MaterialTheme.typography.bodyMedium,
                 color = GreenPrimary,
                 modifier = Modifier.padding(start = 60.dp, end = 12.dp, bottom = 12.dp)
+            )
+        }
+        // As compras do cartão, dentro da mesma moldura: divisória + recuo
+        if (expandido) {
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant
+            )
+            Column(
+                modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 8.dp),
+                content = itens
             )
         }
     }
