@@ -105,7 +105,12 @@ class ParserImportacao @Inject constructor() {
                 criadoPorUid = obj.optString("criadoPorUid", ""),
                 transferenciaId = obj.optString("transferenciaId", ""),
                 notaFiscal = obj.optString("notaFiscal", ""),
-                pago = obj.optBoolean("pago", true)
+                pago = obj.optBoolean("pago", true),
+                cartaoUuid = obj.optString("cartaoUuid", ""),
+                dataCompra = obj.optString("dataCompra")
+                    .takeIf { it.isNotBlank() }
+                    ?.let { parseData(it, i + 1) },
+                oculto = obj.optBoolean("oculto", false)
             )
         }
 
@@ -136,11 +141,15 @@ class ParserImportacao @Inject constructor() {
             .getOrElse { throw IllegalArgumentException("data inválida na linha $linha: \"$limpo\"") }
     }
 
-    /** Aceita "1234.56", "1234,56" e "R$ 1.234,56". Retorna centavos. */
+    /** Aceita "1234.56", "1234,56", "R$ 1.234,56" e "1.234" (milhar BR). Retorna centavos. */
     private fun parseValorCentavos(texto: String, linha: Int): Long {
         var limpo = texto.trim().removePrefix("R$").trim().replace(" ", "")
         if (limpo.contains(',')) {
             limpo = limpo.replace(".", "").replace(',', '.')
+        } else if (limpo.matches(Regex("""-?\d{1,3}(\.\d{3})+"""))) {
+            // Sem vírgula, ponto agrupando de 3 em 3 é MILHAR pt-BR
+            // ("1.234" = R$ 1.234,00) — como decimal importaria R$ 1,23
+            limpo = limpo.replace(".", "")
         }
         val reais = limpo.toDoubleOrNull()
             ?: throw IllegalArgumentException("valor inválido na linha $linha: \"$texto\"")
