@@ -47,6 +47,15 @@ data class ResumoMesAnterior(
     val saldo: Long get() = ganhos - gastos
 }
 
+/** Soma dos orçamentos por categoria vs gasto do mês (centavos). */
+data class OrcamentoMes(
+    val gasto: Long,
+    val teto: Long
+) {
+    val fracao: Float get() = if (teto <= 0L) 0f else (gasto.toDouble() / teto).toFloat()
+    val estourado: Boolean get() = gasto > teto
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -176,6 +185,31 @@ class HomeViewModel @Inject constructor(
         .flatMapLatest { repository.observarCategorias(it) }
         .map { categorias -> categorias.associate { it.nome to it.cor } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /**
+     * Orçamento agregado do mês exibido: soma dos tetos por categoria vs o
+     * gasto delas. Null quando nenhuma categoria tem orçamento — o card some.
+     */
+    val orcamentoMes: StateFlow<OrcamentoMes?> =
+        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
+            .flatMapLatest { (p, mes) ->
+                combine(
+                    repository.observarCategorias(p),
+                    repository.observarGastosPorCategoria(p, mes.atDay(1), mes.atEndOfMonth())
+                ) { categorias, somas ->
+                    val comTeto = categorias.filter { !it.arquivada && it.orcamentoMensal > 0L }
+                    if (comTeto.isEmpty()) {
+                        null
+                    } else {
+                        val gastoPorNome = somas.associate { it.categoria to it.total }
+                        OrcamentoMes(
+                            gasto = comTeto.sumOf { gastoPorNome[it.nome] ?: 0L },
+                            teto = comTeto.sumOf { it.orcamentoMensal }
+                        )
+                    }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Vai para o mês anterior / próximo / um mês qualquer / de volta ao atual. */
     fun mesAnterior() {
