@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -378,6 +379,32 @@ fun TransacaoModal(
                 supportingText = { Text("${descricao.length}/100") },
                 singleLine = true
             )
+
+            // Sugestão pelo histórico: "Mercado" já foi lançado N vezes como
+            // Alimentação → chip 1-toque. Só quando a categoria ainda é a
+            // padrão ("Outros") — escolha deliberada do usuário não é sobrescrita.
+            var categoriaSugerida by remember { mutableStateOf<String?>(null) }
+            if (!edicao && !ehTransferencia) {
+                LaunchedEffect(descricao, tipo) {
+                    kotlinx.coroutines.delay(350)
+                    categoriaSugerida = viewModel.sugerirCategoria(descricao, tipo)
+                }
+                val sugestao = categoriaSugerida
+                if (sugestao != null &&
+                    textoCategoria == "Outros" &&
+                    !sugestao.equals(textoCategoria, ignoreCase = true) &&
+                    categorias.any { it.nome == sugestao }
+                ) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    AssistChip(
+                        onClick = {
+                            textoCategoria = sugestao
+                            erroCategoria = null
+                        },
+                        label = { Text("Usar categoria: $sugestao") }
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 

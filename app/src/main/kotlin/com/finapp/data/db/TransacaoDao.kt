@@ -136,6 +136,22 @@ interface TransacaoDao {
     )
     fun buscar(perfil: Perfil, termo: String): Flow<List<Transacao>>
 
+    /**
+     * Categoria mais usada em lançamentos com descrição parecida — sugestão
+     * no modal ("Mercado" já foi 12x Alimentação). "Outros" e "Transferência"
+     * não são sugestões úteis.
+     */
+    @Query(
+        """
+        SELECT categoria FROM Transacao
+        WHERE perfil = :perfil AND deletado = 0 AND tipo = :tipo
+            AND categoria NOT IN ('Outros', 'Transferência')
+            AND descricao LIKE :prefixo || '%'
+        GROUP BY categoria ORDER BY COUNT(*) DESC LIMIT 1
+        """
+    )
+    suspend fun categoriaMaisUsada(perfil: Perfil, tipo: TipoTransacao, prefixo: String): String?
+
     // ---------- Agregações ----------
 
     /**

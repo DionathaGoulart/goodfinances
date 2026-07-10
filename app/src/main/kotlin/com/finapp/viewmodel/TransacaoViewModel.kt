@@ -249,6 +249,17 @@ class TransacaoViewModel @Inject constructor(
     fun previsaoVencimento(cartao: Cartao, dataCompra: LocalDate): LocalDate =
         repository.vencimentoFatura(cartao, dataCompra)
 
+    /**
+     * Categoria mais usada em lançamentos com descrição parecida — alimenta
+     * o chip de sugestão do modal (null = sem histórico útil).
+     */
+    suspend fun sugerirCategoria(descricao: String, tipo: TipoTransacao): String? =
+        if (descricao.trim().length < 3) {
+            null
+        } else {
+            repository.sugerirCategoria(perfil.value, tipo, descricao)
+        }
+
     /** Espelho do pró-labore no balde Pessoal do modo misto. */
     private suspend fun lancarProLabore(
         valorCentavos: Long,
