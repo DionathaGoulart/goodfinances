@@ -62,10 +62,22 @@ class CasaManager @Inject constructor(
     /** Recarrega a casa salva (chamar ao abrir a tela; tolera estar offline). */
     suspend fun carregarCasa() {
         val casaId = prefs.getString(CHAVE_CASA, null) ?: return
-        if (auth.currentUser == null) return
+        val uidAtual = auth.currentUser?.uid ?: return
+        // A casa salva pertence à CONTA que a salvou: se o usuário trocou de
+        // conta Google, o vínculo (e o balde CASA local) é da conta antiga —
+        // mantê-lo misturaria/empurraria o histórico dela para a casa nova.
+        val donoUid = prefs.getString(CHAVE_CASA_UID, null)
+        if (donoUid != null && donoUid != uidAtual) {
+            limparVinculoLocalDaCasa()
+            return
+        }
         runCatching {
             val doc = db.collection(COLECAO).document(casaId).get().await()
             _casa.value = doc.paraCasa()
+            // Backfill de instalações antigas (casa salva sem o uid do dono)
+            if (donoUid == null && _casa.value != null) {
+                prefs.edit { putString(CHAVE_CASA_UID, uidAtual) }
+            }
             // Casas criadas antes da coleção de convites: registra o código
             // para novos membros conseguirem entrar (as regras não deixam
             // mais procurar casas pelo código diretamente)
@@ -113,9 +125,27 @@ class CasaManager @Inject constructor(
         carregarCasa()
     }
 
-    fun sairDaConta() {
+    /**
+     * Sai da conta Google. Limpa também o vínculo local com a casa: ele é da
+     * CONTA que saiu — sem isso, logar com outra conta e entrar noutra casa
+     * mistura o histórico antigo (e o empurra para a casa nova, cuja marca de
+     * push começa em zero). Os dados continuam no Firestore e voltam via sync
+     * se a mesma conta relogar.
+     */
+    suspend fun sairDaConta() {
         auth.signOut()
+        limparVinculoLocalDaCasa()
+    }
+
+    /** Desfaz o vínculo local com a casa (prefs, flag do seletor e balde CASA). */
+    private suspend fun limparVinculoLocalDaCasa() {
+        prefs.edit {
+            remove(CHAVE_CASA)
+            remove(CHAVE_CASA_UID)
+        }
         _casa.value = null
+        perfilManager.definirTemCasa(false)
+        repository.limparDadosLocaisDaCasa()
     }
 
     /** Cria uma casa nova com código de convite único e entra nela. */
@@ -128,21 +158,22 @@ class CasaManager @Inject constructor(
             codigo = gerarCodigo()
         }
 
-        // Casa + convite juntos: o convite é o único caminho público até a
-        // casa (as regras não deixam listar casas nem ler as dos outros)
+        // A casa é criada ANTES do convite: a regra de criação do convite
+        // exige que quem cria já seja membro da casa apontada (impede apontar
+        // um código para a casa alheia). Num batch o `get()` da regra não
+        // enxergaria a casa ainda não commitada, então são duas escritas.
         val ref = db.collection(COLECAO).document()
-        val batch = db.batch()
-        batch.set(
-            ref,
+        ref.set(
             mapOf(
                 "codigoConvite" to codigo,
                 "membros" to listOf(uid),
                 "criadoPor" to uid,
                 "criadoEm" to FieldValue.serverTimestamp()
             )
-        )
-        batch.set(conviteRef(codigo), mapOf("casaId" to ref.id))
-        batch.commit().await()
+        ).await()
+        // O convite é o único caminho público até a casa (as regras não
+        // deixam listar casas nem ler as dos outros).
+        conviteRef(codigo).set(mapOf("casaId" to ref.id)).await()
 
         val casa = Casa(id = ref.id, codigoConvite = codigo, membros = listOf(uid))
         // Só o criador semeia as categorias padrão; os demais recebem via sync
@@ -182,12 +213,9 @@ class CasaManager @Inject constructor(
         db.collection(COLECAO).document(casaAtual.id)
             .update("membros", FieldValue.arrayRemove(uid))
             .await()
-        prefs.edit { remove(CHAVE_CASA) }
-        _casa.value = null
-        perfilManager.definirTemCasa(false)
-        // Limpa os dados locais da Casa (delete físico, o sync já parou):
-        // sem isso, entrar em OUTRA casa empurraria o histórico da antiga
-        repository.limparDadosLocaisDaCasa()
+        // Limpa prefs + balde local (delete físico, o sync já parou): sem
+        // isso, entrar em OUTRA casa empurraria o histórico da antiga
+        limparVinculoLocalDaCasa()
     }
 
     /** Apaga em lotes todos os docs do espelho pessoal deste membro. */
@@ -213,7 +241,11 @@ class CasaManager @Inject constructor(
         db.collection(COLECAO_CONVITES).document(codigo)
 
     private fun salvarCasa(casa: Casa) {
-        prefs.edit { putString(CHAVE_CASA, casa.id) }
+        prefs.edit {
+            putString(CHAVE_CASA, casa.id)
+            // Vínculo é por conta: detecta troca de conta no carregarCasa
+            putString(CHAVE_CASA_UID, auth.currentUser?.uid)
+        }
         _casa.value = casa
         perfilManager.definirTemCasa(true)
     }
@@ -256,6 +288,7 @@ class CasaManager @Inject constructor(
         const val COLECAO = "casas"
         const val COLECAO_CONVITES = "convites"
         const val CHAVE_CASA = "casa_id"
+        const val CHAVE_CASA_UID = "casa_uid"
         const val TAMANHO_CODIGO = 6
 
         /** Sem 0/O/1/I para o código ser fácil de ditar. */
