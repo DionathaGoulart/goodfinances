@@ -399,6 +399,14 @@ fun HomeScreen(
                         }
                     )
                 }
+                // Orçamento do mês (só quando alguma categoria tem teto)
+                val orcamento by viewModel.orcamentoMes.collectAsStateWithLifecycle()
+                orcamento?.let { orc ->
+                    item(key = "orcamento") {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OrcamentoCard(orcamento = orc)
+                    }
+                }
                 if (cnpj) {
                     item(key = "cards-cnpj") {
                         Spacer(modifier = Modifier.height(12.dp))
@@ -627,6 +635,50 @@ fun HomeScreen(
             },
             viewModel = transacaoViewModel
         )
+    }
+}
+
+/**
+ * Resumo do orçamento do mês exibido: barra de progresso do gasto sobre a
+ * soma dos tetos por categoria (o detalhe por categoria fica na Análise).
+ */
+@Composable
+private fun OrcamentoCard(orcamento: com.finapp.viewmodel.OrcamentoMes) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "ORÇAMENTO DO MÊS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "${(orcamento.fracao * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (orcamento.estourado) RedExpense else GreenPrimary
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { orcamento.fracao.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth(),
+                color = if (orcamento.estourado) RedExpense else GreenPrimary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "${Formatadores.moeda(orcamento.gasto)} de " +
+                    "${Formatadores.moeda(orcamento.teto)} orçados" +
+                    if (orcamento.estourado) " — teto estourado" else "",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
