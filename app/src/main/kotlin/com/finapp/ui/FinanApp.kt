@@ -45,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -264,6 +265,7 @@ private fun IconeNav(
     Box(
         modifier = Modifier
             .size(48.dp)
+            .clip(CircleShape)
             .clickable {
                 navController.navigate(destino.route) {
                     popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -273,6 +275,14 @@ private fun IconeNav(
             },
         contentAlignment = Alignment.Center
     ) {
+        // Pill atrás do ícone ativo: affordance de "você está aqui"
+        if (selecionado) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(cor.copy(alpha = 0.15f), CircleShape)
+            )
+        }
         Icon(
             imageVector = destino.icon,
             contentDescription = destino.label,

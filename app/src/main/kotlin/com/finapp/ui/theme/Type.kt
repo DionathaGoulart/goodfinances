@@ -6,12 +6,24 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
+// Dígitos tabulares: todos com a mesma largura, para valores alinharem
+// em listas e não "dançarem" quando mudam (recurso OpenType "tnum").
+private const val NUMEROS_TABULARES = "tnum"
+
 val Typography = Typography(
     // Saldo total (grande, em destaque)
     displayLarge = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Bold,
-        fontSize = 32.sp
+        fontSize = 32.sp,
+        fontFeatureSettings = NUMEROS_TABULARES
+    ),
+    // Saldo do card do dashboard
+    displayMedium = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 30.sp,
+        fontFeatureSettings = NUMEROS_TABULARES
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.Default,
@@ -21,7 +33,8 @@ val Typography = Typography(
     titleMedium = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp
+        fontSize = 16.sp,
+        fontFeatureSettings = NUMEROS_TABULARES
     ),
     bodyLarge = TextStyle(
         fontFamily = FontFamily.Default,
@@ -45,6 +58,7 @@ val Typography = Typography(
 fun escalarTipografia(base: Typography, fator: Float): Typography =
     if (fator == 1f) base else base.copy(
         displayLarge = base.displayLarge.copy(fontSize = base.displayLarge.fontSize * fator),
+        displayMedium = base.displayMedium.copy(fontSize = base.displayMedium.fontSize * fator),
         titleLarge = base.titleLarge.copy(fontSize = base.titleLarge.fontSize * fator),
         titleMedium = base.titleMedium.copy(fontSize = base.titleMedium.fontSize * fator),
         bodyLarge = base.bodyLarge.copy(fontSize = base.bodyLarge.fontSize * fator),

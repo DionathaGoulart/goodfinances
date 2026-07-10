@@ -45,7 +45,11 @@ import com.finapp.ui.theme.GreenPrimary
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
 
-/** Linha de transação: ícone, descrição, categoria, valor e data. */
+/**
+ * Linha de transação: ícone, descrição, categoria, valor e data.
+ * [corCategoria] pinta o ícone com a cor da categoria (reconhecimento rápido
+ * do tipo de gasto); sem ela, cai no verde/vermelho de ganho/gasto.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TransacaoItem(
@@ -53,6 +57,7 @@ fun TransacaoItem(
     modifier: Modifier = Modifier,
     mostrarData: Boolean = true,
     corFundo: Color? = null,
+    corCategoria: Color? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null
 ) {
@@ -60,6 +65,8 @@ fun TransacaoItem(
         TipoTransacao.GANHO -> GreenPrimary
         TipoTransacao.GASTO -> RedExpense
     }
+    // O valor continua verde/vermelho (semântico); o ícone leva a categoria
+    val corIcone = corCategoria ?: cor
     val icone = when (transacao.tipo) {
         TipoTransacao.GANHO -> Icons.Filled.ArrowUpward
         TipoTransacao.GASTO -> Icons.Filled.ArrowDownward
@@ -85,13 +92,13 @@ fun TransacaoItem(
             modifier = Modifier
                 .size(36.dp)
                 .clip(CircleShape)
-                .background(cor.copy(alpha = 0.15f)),
+                .background(corIcone.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icone,
                 contentDescription = transacao.tipo.name,
-                tint = cor,
+                tint = corIcone,
                 modifier = Modifier.size(18.dp)
             )
         }
@@ -201,6 +208,7 @@ fun TransacaoLinha(
     modifier: Modifier = Modifier,
     mostrarData: Boolean = true,
     corFundo: Color? = null,
+    corCategoria: Color? = null,
     onAlternarPago: ((Transacao) -> Unit)? = null,
     onBloqueado: () -> Unit = {}
 ) {
@@ -212,6 +220,7 @@ fun TransacaoLinha(
             transacao = transacao,
             mostrarData = mostrarData,
             corFundo = corFundo,
+            corCategoria = corCategoria,
             onClick = { if (podeEditar) onEditar(transacao) else onBloqueado() },
             onLongClick = if (temMenu) {
                 { menuAberto = true }

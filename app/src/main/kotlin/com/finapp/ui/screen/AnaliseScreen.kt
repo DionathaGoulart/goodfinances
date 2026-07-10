@@ -2,6 +2,7 @@ package com.finapp.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -123,7 +124,10 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
         Spacer(modifier = Modifier.height(12.dp))
 
         // ---------- Filtro de período ----------
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             PeriodoFiltro.entries.forEach { opcao ->
                 FilterChip(
                     selected = filtro == opcao,
@@ -155,7 +159,10 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
             }
         }
         val subAba = abas.getOrElse(subAbaIndice) { SubAnalise.RESUMO }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             abas.forEach { aba ->
                 FilterChip(
                     selected = subAba == aba,

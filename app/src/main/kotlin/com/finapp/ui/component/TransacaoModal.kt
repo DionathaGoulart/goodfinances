@@ -16,9 +16,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -324,19 +326,28 @@ fun TransacaoModal(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // ---------- Data ----------
-            OutlinedTextField(
-                value = Formatadores.dataCurta(data),
-                onValueChange = {},
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Data") },
-                readOnly = true,
-                trailingIcon = {
-                    TextButton(onClick = { datePickerAberto = true }) {
-                        Text("Alterar")
+            // ---------- Data (campo inteiro clicável — abre o calendário) ----------
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = Formatadores.dataCurta(data),
+                    onValueChange = {},
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Data") },
+                    readOnly = true,
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.DateRange,
+                            contentDescription = "Escolher data"
+                        )
                     }
-                }
-            )
+                )
+                // Overlay transparente: readOnly não repassa toques ao campo
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable { datePickerAberto = true }
+                )
+            }
 
             // ---------- Nota fiscal / comprovante (todos os contextos) ----------
             run {

@@ -39,8 +39,6 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,6 +55,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.finapp.data.EstadoDownload
@@ -216,18 +215,16 @@ fun HomeScreen(
                 )
             }
 
-            // Abas de contexto: Pessoal | Empresa | Casa (conforme o modo)
+            // Abas de contexto: Pessoal | Empresa | Casa (conforme o modo).
+            // Chips leves em vez do TabRow do Material (menos peso visual).
             if (contextos.size > 1) {
                 Spacer(modifier = Modifier.height(12.dp))
-                TabRow(
-                    selectedTabIndex = contextos.indexOf(perfilDados).coerceAtLeast(0),
-                    containerColor = Color.Transparent
-                ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     contextos.forEach { contexto ->
-                        Tab(
+                        FilterChip(
                             selected = perfilDados == contexto,
                             onClick = { viewModel.mudarContexto(contexto) },
-                            text = { Text(contexto.rotulo) }
+                            label = { Text(contexto.rotulo) }
                         )
                     }
                 }
@@ -371,13 +368,21 @@ fun HomeScreen(
                     mutableStateOf(listOf<String>())
                 }
 
+                // Cor da categoria de cada linha (reconhecimento visual rápido)
+                val coresCategorias by viewModel.coresCategorias.collectAsStateWithLifecycle()
                 val linhaTransacao: @Composable (Transacao, Color?) -> Unit = { transacao, corFundo ->
                     val podeEditar = viewModel.podeEditar(transacao)
+                    val corCategoria = coresCategorias[transacao.categoria]?.let { hex ->
+                        runCatching { Color(hex.toColorInt()) }.getOrNull()
+                    }
                     TransacaoLinha(
                         transacao = transacao,
                         podeEditar = podeEditar,
                         podeEsconder = podeEsconder,
                         corFundo = corFundo,
+                        corCategoria = corCategoria,
+                        // A data vem do cabeçalho do dia (ou do card do cartão)
+                        mostrarData = false,
                         onEditar = {
                             transacaoEmEdicao = it
                             modalAberto = true
@@ -409,6 +414,8 @@ fun HomeScreen(
 
                 // Fundo dos itens dentro do card do cartão (integra à moldura)
                 val corItemCartao = MaterialTheme.colorScheme.surface
+                // Avulsas agrupadas por dia (a query já vem ordenada por data)
+                val avulsasPorDia = remember(avulsas) { avulsas.groupBy { it.data } }
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.weight(1f),
@@ -438,8 +445,13 @@ fun HomeScreen(
                             }
                         }
                     }
-                    items(avulsas, key = { it.id }) { transacao ->
-                        linhaTransacao(transacao, null)
+                    avulsasPorDia.forEach { (dia, transacoesDoDia) ->
+                        item(key = "dia-${dia.toEpochDay()}") {
+                            CabecalhoDia(dia = dia, hoje = dataAtual)
+                        }
+                        items(transacoesDoDia, key = { it.id }) { transacao ->
+                            linhaTransacao(transacao, null)
+                        }
                     }
                 }
             }
@@ -569,6 +581,22 @@ fun HomeScreen(
     }
 }
 
+/** Cabeçalho de um dia no histórico: HOJE / ONTEM / "15 DE JUN, DOMINGO". */
+@Composable
+private fun CabecalhoDia(dia: java.time.LocalDate, hoje: java.time.LocalDate) {
+    val rotulo = when (dia) {
+        hoje -> "HOJE"
+        hoje.minusDays(1) -> "ONTEM"
+        else -> Formatadores.dataAgrupamento(dia)
+    }
+    Text(
+        text = rotulo,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 14.dp, bottom = 2.dp, start = 4.dp)
+    )
+}
+
 /** Rótulo "Julho 2026" a partir de um YearMonth (pt-BR). */
 private fun rotuloMes(mes: YearMonth): String {
     val nome = mes.month
@@ -577,7 +605,10 @@ private fun rotuloMes(mes: YearMonth): String {
     return "$nome ${mes.year}"
 }
 
-/** Navegação do mês: ‹ Mês Ano › (toque no rótulo abre o seletor de mês/ano). */
+/**
+ * Navegação do mês: ‹ Mês Ano › (toque no rótulo abre o seletor de mês/ano).
+ * Fora do mês atual, um "Hoje" inline volta sem gastar uma linha extra.
+ */
 @Composable
 private fun BarraMes(
     mes: YearMonth,
@@ -607,24 +638,27 @@ private fun BarraMes(
             Text(
                 text = rotuloMes(mes),
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
+                color = if (ehMesAtual) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.primary
+                }
             )
+            if (!ehMesAtual) {
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(
+                    onClick = onHoje,
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Text("Hoje")
+                }
+            }
         }
         IconButton(onClick = onProximo) {
             Icon(
                 imageVector = Icons.Filled.ChevronRight,
                 contentDescription = "Próximo mês"
             )
-        }
-    }
-    if (!ehMesAtual) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center
-        ) {
-            TextButton(onClick = onHoje) {
-                Text("Voltar para o mês atual")
-            }
         }
     }
 }
