@@ -302,6 +302,9 @@ fun HomeScreen(
 
             // Cor da categoria de cada linha (reconhecimento visual rápido)
             val coresCategorias by viewModel.coresCategorias.collectAsStateWithLifecycle()
+            // Orçamento do mês (só quando alguma categoria tem teto) — coletado
+            // aqui no escopo @Composable; o LazyColumn abaixo apenas o consome
+            val orcamento by viewModel.orcamentoMes.collectAsStateWithLifecycle()
             val linhaTransacao: @Composable (Transacao, Color?) -> Unit = { transacao, corFundo ->
                 val podeEditar = viewModel.podeEditar(transacao)
                 val corCategoria = coresCategorias[transacao.categoria]?.let { hex ->
@@ -400,7 +403,6 @@ fun HomeScreen(
                     )
                 }
                 // Orçamento do mês (só quando alguma categoria tem teto)
-                val orcamento by viewModel.orcamentoMes.collectAsStateWithLifecycle()
                 orcamento?.let { orc ->
                     item(key = "orcamento") {
                         Spacer(modifier = Modifier.height(12.dp))
