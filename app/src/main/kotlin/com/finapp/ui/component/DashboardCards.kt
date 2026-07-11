@@ -44,6 +44,7 @@ fun SaldoCard(
     modifier: Modifier = Modifier,
     rotulo: String = "SALDO TOTAL",
     aPagarMes: Long = 0L,
+    aReceberMes: Long = 0L,
     saldoAposPagar: Long = 0L,
     mostrarResumoMes: Boolean = true,
     rotuloMes: String = "Este mês"
@@ -76,7 +77,7 @@ fun SaldoCard(
             )
 
             // Faixa de resumo do mês, só quando há algo a mostrar
-            if (mostrarResumoMes || aPagarMes > 0L) {
+            if (mostrarResumoMes || aPagarMes > 0L || aReceberMes > 0L) {
                 Spacer(modifier = Modifier.height(16.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 Spacer(modifier = Modifier.height(12.dp))
@@ -130,6 +131,30 @@ fun SaldoCard(
                         text = "sobra ${Formatadores.moeda(saldoAposPagar)}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (saldoAposPagar >= 0L) GreenPrimary else RedExpense
+                    )
+                }
+            }
+
+            // Ganhos pendentes do mês (salário a cair, valores esperados)
+            if (aReceberMes > 0L) {
+                if (mostrarResumoMes || aPagarMes > 0L) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Schedule,
+                        contentDescription = null,
+                        tint = GreenPrimary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.size(6.dp))
+                    Text(
+                        text = "A receber ${Formatadores.moeda(aReceberMes)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = GreenPrimary
                     )
                 }
             }

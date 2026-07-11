@@ -34,6 +34,17 @@ data class TransacaoRecorrente(
     val diaMensal: Int = 0,
     val perfil: Perfil,
     val ativa: Boolean = true,
+    /**
+     * "Dura até": ocorrências com data DEPOIS disso não são lançadas e a
+     * recorrência se encerra sozinha ao passar do limite. Null = sem fim.
+     */
+    val terminaEm: LocalDate? = null,
+    /**
+     * GANHO mensal (salário): próxima data em que a ocorrência materializada
+     * é auto-confirmada (pago = 1). Avança uma vez por ocorrência — desmarcar
+     * depois do auto-recebimento NÃO é re-marcado. Null nas demais.
+     */
+    val proximaConfirmacao: LocalDate? = null,
     /** Última modificação (epoch millis) — resolução de conflitos no sync. */
     val atualizadoEm: Long = System.currentTimeMillis(),
     /** Tombstone para o sync. */

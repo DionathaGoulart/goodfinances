@@ -82,6 +82,12 @@ class CasaManager @Inject constructor(
             // para novos membros conseguirem entrar (as regras não deixam
             // mais procurar casas pelo código diretamente)
             _casa.value?.let { garantirConvite(it) }
+            // Reconcilia os espelhos dos cartões pessoais na Casa: cobre
+            // cartões de antes da feature e os que chegaram pelo sync
+            // pessoal direto no DAO (sem passar pelo repository)
+            if (_casa.value != null) {
+                runCatching { repository.espelharCartoesPessoaisNaCasa() }
+            }
         }.onFailure {
             android.util.Log.w(TAG, "Falha ao carregar a casa $casaId", it)
         }
@@ -179,6 +185,8 @@ class CasaManager @Inject constructor(
         // Só o criador semeia as categorias padrão; os demais recebem via sync
         repository.semearCategoriasCasa()
         salvarCasa(casa)
+        // Meus cartões pessoais aparecem na Casa (espelho; sobe pelo sync)
+        runCatching { repository.espelharCartoesPessoaisNaCasa() }
         return casa
     }
 
@@ -200,6 +208,8 @@ class CasaManager @Inject constructor(
         val casa = db.collection(COLECAO).document(casaId).get().await().paraCasa()
             ?: throw IllegalStateException("Casa não encontrada — peça um código novo")
         salvarCasa(casa)
+        // Meus cartões pessoais aparecem na Casa (espelho; sobe pelo sync)
+        runCatching { repository.espelharCartoesPessoaisNaCasa() }
         return casa
     }
 
@@ -210,12 +220,36 @@ class CasaManager @Inject constructor(
         // Remove o espelho dos meus lançamentos pessoais ANTES de sair
         // (depois de sair das `membros`, as regras negam a escrita)
         runCatching { apagarEspelhoRemoto(casaAtual.id, uid) }
+        // Tombstona na Casa os espelhos dos meus cartões pessoais: sem isso
+        // eles ficariam órfãos permanentes nos aparelhos dos outros membros
+        // (o delete físico local não propaga; só o tombstone via sync)
+        runCatching { tombstonarEspelhosDeCartoes(casaAtual.id) }
         db.collection(COLECAO).document(casaAtual.id)
             .update("membros", FieldValue.arrayRemove(uid))
             .await()
         // Limpa prefs + balde local (delete físico, o sync já parou): sem
         // isso, entrar em OUTRA casa empurraria o histórico da antiga
         limparVinculoLocalDaCasa()
+    }
+
+    /** Tombstona em `casas/{id}/cartoes` os espelhos dos meus cartões pessoais. */
+    private suspend fun tombstonarEspelhosDeCartoes(casaId: String) {
+        val agora = System.currentTimeMillis()
+        val cartoesRef = db.collection(COLECAO).document(casaId).collection("cartoes")
+        com.finapp.data.db.entities.Perfil.BALDES_PESSOAIS
+            .flatMap { repository.listarCartoes(it) }
+            .forEach { cartao ->
+                cartoesRef
+                    .document(
+                        com.finapp.data.repository.FinanceRepository
+                            .uuidEspelhoCartao(cartao.uuid)
+                    )
+                    .set(
+                        mapOf("deletado" to true, "atualizadoEm" to agora),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+                    .await()
+            }
     }
 
     /** Apaga em lotes todos os docs do espelho pessoal deste membro. */

@@ -10,7 +10,8 @@ import java.util.UUID
     indices = [
         Index(value = ["perfil", "data"]),
         Index(value = ["perfil", "tipo"]),
-        Index(value = ["uuid"], unique = true)
+        Index(value = ["uuid"], unique = true),
+        Index(value = ["recorrenciaUuid"])
     ]
 )
 data class Transacao(
@@ -62,10 +63,16 @@ data class Transacao(
     /**
      * False = pendente: tem data para pagar ([data]) mas ainda não saiu do
      * bolso — NÃO conta no saldo até ser marcada como paga. Nascem pendentes
-     * as compras no crédito (pagas ao pagar a fatura) e os GASTOS lançados
-     * por recorrência. Ganhos e lançamentos manuais nascem pagos.
+     * as compras no crédito (pagas ao pagar a fatura), as ocorrências
+     * MENSAIS de recorrência (a pagar / a receber) e os ganhos esperados.
      */
-    val pago: Boolean = true
+    val pago: Boolean = true,
+    /**
+     * Uuid da [TransacaoRecorrente] que gerou esta ocorrência ("" = manual).
+     * Editar/encerrar a recorrência propaga só para as ocorrências futuras
+     * NÃO PAGAS vinculadas por aqui.
+     */
+    val recorrenciaUuid: String = ""
 )
 
 /**

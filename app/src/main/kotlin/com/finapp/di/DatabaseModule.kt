@@ -37,7 +37,9 @@ object DatabaseModule {
                 AppDatabase.MIGRACAO_9_10,
                 AppDatabase.MIGRACAO_10_11,
                 AppDatabase.MIGRACAO_11_12,
-                AppDatabase.MIGRACAO_12_13
+                AppDatabase.MIGRACAO_12_13,
+                AppDatabase.MIGRACAO_13_14,
+                AppDatabase.MIGRACAO_14_15
             )
             .build()
 

@@ -110,7 +110,8 @@ class ParserImportacao @Inject constructor() {
                 dataCompra = obj.optString("dataCompra")
                     .takeIf { it.isNotBlank() }
                     ?.let { parseData(it, i + 1) },
-                oculto = obj.optBoolean("oculto", false)
+                oculto = obj.optBoolean("oculto", false),
+                recorrenciaUuid = obj.optString("recorrenciaUuid", "")
             )
         }
 

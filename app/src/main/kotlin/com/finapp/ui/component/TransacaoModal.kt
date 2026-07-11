@@ -125,6 +125,8 @@ fun TransacaoModal(
     var repetirMensalmente by remember { mutableStateOf(false) }
     var parcelas by remember { mutableStateOf(1) }
     var proLabore by remember { mutableStateOf(false) }
+    // Ganho esperado: ainda não entrou — nasce pendente ("a receber")
+    var aReceber by remember { mutableStateOf(false) }
     // Forma de pagamento (só gasto novo): dinheiro/débito ou crédito num cartão
     var pagamentoCredito by remember { mutableStateOf(false) }
     var cartaoSelecionado by remember { mutableStateOf<Cartao?>(null) }
@@ -277,6 +279,9 @@ fun TransacaoModal(
                                     pagamentoCredito = false
                                     cartaoSelecionado = null
                                     proLabore = false
+                                } else {
+                                    // "A receber" só existe em GANHO
+                                    aReceber = false
                                 }
                             },
                             modifier = Modifier
@@ -379,6 +384,26 @@ fun TransacaoModal(
                 supportingText = { Text("${descricao.length}/100") },
                 singleLine = true
             )
+
+            // Contexto da parcela em edição: "Parcela i de N · Compra total"
+            // (informativo — o campo Valor continua sendo o desta parcela)
+            if (edicao) {
+                var infoParcela by remember { mutableStateOf<Triple<Int, Int, Long>?>(null) }
+                LaunchedEffect(transacaoParaEditar) {
+                    infoParcela = transacaoParaEditar?.let {
+                        runCatching { viewModel.infoCompraParcelada(it) }.getOrNull()
+                    }
+                }
+                infoParcela?.let { (indice, total, valorTotal) ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Parcela $indice de $total · " +
+                            "Compra total: ${Formatadores.moeda(valorTotal)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
 
             // Sugestão pelo histórico: "Mercado" já foi lançado N vezes como
             // Alimentação → chip 1-toque. Só quando a categoria ainda é a
@@ -698,6 +723,32 @@ fun TransacaoModal(
                 }
             }
 
+            // ---------- Ganho esperado (só para novo ganho) ----------
+            if (!edicao && tipo == TipoTransacao.GANHO) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    // Linha inteira alterna o checkbox: um único nó de foco
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = aReceber,
+                            role = Role.Checkbox,
+                            onValueChange = { aReceber = it }
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = aReceber,
+                        onCheckedChange = null
+                    )
+                    Text(
+                        text = "Ainda não recebi (fica como a receber)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
             // ---------- Repetir mensalmente (só para nova transação à vista) ----------
             if (!edicao && parcelas == 1 && !pagamentoCredito) {
                 Spacer(modifier = Modifier.height(4.dp))
@@ -802,7 +853,8 @@ fun TransacaoModal(
                                     notaFiscal = notaFiscal,
                                     parcelas = parcelas,
                                     lancarProLaborePessoal = proLabore,
-                                    cartao = if (usaCredito) cartaoSelecionado else null
+                                    cartao = if (usaCredito) cartaoSelecionado else null,
+                                    aReceber = tipo == TipoTransacao.GANHO && aReceber
                                 )
                             }
                             onFechar()

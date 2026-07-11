@@ -3,6 +3,7 @@ package com.finapp.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.finapp.data.ConfigOnibus
+import com.finapp.data.EstadoDiaOnibus
 import com.finapp.data.OnibusManager
 import com.finapp.data.PerfilManager
 import com.finapp.data.ProjecaoOnibus
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalTime
 import javax.inject.Inject
 
 /**
@@ -43,20 +45,63 @@ class OnibusViewModel @Inject constructor(
 
     val perfilDados: StateFlow<Perfil> = perfilManager.perfilDados
 
-    /** Projeção reativa: recalcula quando a config muda ou vira o dia. */
+    /** Check-in de hoje (Ida/Volta) — o automático marca sozinho na hora. */
+    val estadoDia: StateFlow<EstadoDiaOnibus> = onibusManager.estadoDia
+
+    /** Projeção reativa: recalcula quando a config/check-in muda ou vira o dia. */
     val projecao: StateFlow<ProjecaoOnibus> =
-        combine(onibusManager.config, fluxoDataAtual()) { cfg, hoje ->
-            com.finapp.data.projetarOnibus(cfg, hoje)
+        combine(
+            onibusManager.config,
+            fluxoDataAtual(),
+            onibusManager.estadoDia
+        ) { cfg, hoje, estado ->
+            // Sem as usadas de hoje a projeção contaria o dia atual em dobro
+            val usadasHoje = if (estado.data == hoje) estado.usadasHoje else 0
+            com.finapp.data.projetarOnibus(cfg, hoje, usadasHoje)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProjecaoOnibus())
 
     private val _mensagens = MutableSharedFlow<String>()
     val mensagens: SharedFlow<String> = _mensagens
+
+    init {
+        // Desconto automático dos dias de rotina: ao abrir a aba e na virada
+        // do dia (fluxoDataAtual re-emite à meia-noite)
+        viewModelScope.launch {
+            fluxoDataAtual().collect {
+                val resultado = onibusManager.processarDescontosAutomaticos()
+                if (resultado.saldoInsuficiente) {
+                    emitir("Saldo do ônibus acabou — recarregue para continuar descontando")
+                }
+            }
+        }
+    }
+
+    /** Marca/desmarca a ida ou a volta de hoje (desmarcar devolve ao saldo). */
+    fun alternarCheckin(ida: Boolean) {
+        if (config.value.valorPassagem <= 0L) {
+            emitir("Defina o valor da passagem primeiro")
+            return
+        }
+        if (!onibusManager.alternarCheckin(ida)) {
+            emitir("Saldo insuficiente — recarregue o cartão")
+        }
+    }
 
     fun definirValorPassagem(centavos: Long) = onibusManager.definirValorPassagem(centavos)
 
     fun definirDias(dias: Set<DayOfWeek>) = onibusManager.definirDias(dias)
 
     fun definirIdaEVolta(idaEVolta: Boolean) = onibusManager.definirIdaEVolta(idaEVolta)
+
+    /** Hora cheia (0–23) em que a ida é descontada nos dias de rotina. */
+    fun definirHoraIda(hora: Int) {
+        if (hora in 0..23) onibusManager.definirHoraIda(LocalTime.of(hora, 0))
+    }
+
+    /** Hora cheia (0–23) em que a volta é descontada nos dias de rotina. */
+    fun definirHoraVolta(hora: Int) {
+        if (hora in 0..23) onibusManager.definirHoraVolta(LocalTime.of(hora, 0))
+    }
 
     fun definirSaldo(centavos: Long) = onibusManager.definirSaldo(centavos)
 

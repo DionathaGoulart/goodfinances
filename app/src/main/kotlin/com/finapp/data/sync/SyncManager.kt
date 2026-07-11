@@ -509,7 +509,8 @@ class SyncManager @Inject constructor(
                         "oculto" to t.oculto,
                         "cartaoUuid" to t.cartaoUuid,
                         "dataCompra" to t.dataCompra?.toEpochDay(),
-                        "pago" to t.pago
+                        "pago" to t.pago,
+                        "recorrenciaUuid" to t.recorrenciaUuid
                     )
                 )
             }
@@ -574,6 +575,9 @@ class SyncManager @Inject constructor(
                         "diaFechamento" to c.diaFechamento,
                         "diaVencimento" to c.diaVencimento,
                         "cor" to c.cor,
+                        // Espelho de cartão pessoal: os outros membros também
+                        // o tratam como read-only ("" = cartão nativo)
+                        "origemUuid" to c.origemUuid,
                         "atualizadoEm" to c.atualizadoEm,
                         "deletado" to c.deletado
                     )
@@ -712,6 +716,7 @@ class SyncManager @Inject constructor(
             cartaoUuid = doc.getString("cartaoUuid") ?: "",
             dataCompra = doc.getLong("dataCompra")?.let { LocalDate.ofEpochDay(it) },
             pago = doc.getBoolean("pago") ?: true,
+            recorrenciaUuid = doc.getString("recorrenciaUuid") ?: "",
             // A nota fiscal é um arquivo local — nunca vem do remoto
             notaFiscal = local?.notaFiscal ?: ""
         )
@@ -790,6 +795,7 @@ class SyncManager @Inject constructor(
             diaVencimento = (doc.getLong("diaVencimento") ?: return).toInt(),
             cor = doc.getString("cor") ?: "#8B5CF6",
             perfil = perfil,
+            origemUuid = doc.getString("origemUuid") ?: "",
             atualizadoEm = remotaAtualizadaEm,
             deletado = doc.getBoolean("deletado") ?: false
         )

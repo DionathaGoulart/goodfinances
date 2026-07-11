@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -100,7 +101,8 @@ fun HomeScreen(
     transacaoViewModel: TransacaoViewModel = hiltViewModel()
 ) {
     val saldo by viewModel.saldoTotal.collectAsStateWithLifecycle()
-    val pendenteMes by viewModel.pendenteMes.collectAsStateWithLifecycle()
+    val aPagarMes by viewModel.aPagarMes.collectAsStateWithLifecycle()
+    val aReceberMes by viewModel.aReceberMes.collectAsStateWithLifecycle()
     val ganhos by viewModel.ganhosMes.collectAsStateWithLifecycle()
     val gastos by viewModel.gastosMes.collectAsStateWithLifecycle()
     val transacoesDoMes by viewModel.transacoesDoMes.collectAsStateWithLifecycle()
@@ -390,10 +392,12 @@ fun HomeScreen(
                         gastosMes = gastos,
                         // Pendências do mês (fatura, recorrências): quanto ainda vai
                         // sair e quanto sobra depois de pagar tudo
-                        aPagarMes = pendenteMes,
-                        saldoAposPagar = saldo - pendenteMes,
-                        // Na empresa os cards Receita/Despesa + Lucro abaixo já detalham
-                        mostrarResumoMes = !cnpj,
+                        aPagarMes = aPagarMes,
+                        aReceberMes = aReceberMes,
+                        saldoAposPagar = saldo - aPagarMes,
+                        // Mesmo hub em todos os contextos; na empresa os cards
+                        // Receita/Despesa + Lucro abaixo complementam o resumo
+                        mostrarResumoMes = true,
                         // O resumo é do mês exibido, não necessariamente o atual
                         rotuloMes = if (ehMesAtual) "Este mês" else {
                             "Em " + mesSelecionado.month
@@ -710,7 +714,8 @@ private fun rotuloMes(mes: YearMonth): String {
 
 /**
  * Navegação do mês: ‹ Mês Ano › (toque no rótulo abre o seletor de mês/ano).
- * Fora do mês atual, um "Hoje" inline volta sem gastar uma linha extra.
+ * Fora do mês atual, um ícone de calendário ao lado da lupa volta para hoje —
+ * na área fixa dos ícones, sem deslocar o rótulo centralizado.
  */
 @Composable
 private fun BarraMes(
@@ -748,21 +753,21 @@ private fun BarraMes(
                     MaterialTheme.colorScheme.primary
                 }
             )
-            if (!ehMesAtual) {
-                Spacer(modifier = Modifier.width(8.dp))
-                TextButton(
-                    onClick = onHoje,
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                ) {
-                    Text("Hoje")
-                }
-            }
         }
         IconButton(onClick = onProximo) {
             Icon(
                 imageVector = Icons.Filled.ChevronRight,
                 contentDescription = "Próximo mês"
             )
+        }
+        if (!ehMesAtual) {
+            IconButton(onClick = onHoje) {
+                Icon(
+                    imageVector = Icons.Filled.Today,
+                    contentDescription = "Voltar ao mês atual",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
         }
         IconButton(onClick = onBuscar) {
             Icon(

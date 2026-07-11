@@ -15,6 +15,7 @@ import androidx.core.content.edit
 import com.finapp.MainActivity
 import com.finapp.R
 import com.finapp.data.PerfilManager
+import com.finapp.data.db.entities.Frequencia
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoEmpresa
 import com.finapp.data.db.entities.TipoTransacao
@@ -104,18 +105,29 @@ class NotificacaoManager @Inject constructor(
 
     // ---------- Gatilhos ----------
 
-    /** Recorrências (inclui salário e DAS) que entram hoje. */
+    /** Recorrências (inclui salário e DAS) que entram/vencem hoje. */
     private suspend fun avaliarRecorrentes(baldes: List<Perfil>, hoje: LocalDate) {
         baldes.forEach { balde ->
             repository.listarRecorrentesAtivas(balde)
-                .filter { it.proximoLancamento == hoje }
+                .filter { rec ->
+                    // Recorrência mensal é materializada meses à frente (o
+                    // cursor proximoLancamento fica longe): o lembrete sai
+                    // no dia do vencimento/recebimento, pelo diaMensal
+                    val duraAteVencido = rec.terminaEm != null && hoje > rec.terminaEm
+                    when {
+                        duraAteVencido -> false
+                        rec.frequencia == Frequencia.MENSAL && rec.diaMensal in 1..31 ->
+                            hoje.dayOfMonth == rec.diaMensal.coerceAtMost(hoje.lengthOfMonth())
+                        else -> rec.proximoLancamento == hoje
+                    }
+                }
                 .forEach { rec ->
                     val chave = "notif_rec_${rec.uuid}_$hoje"
                     if (marcarSeNovo(chave)) {
                         val titulo = if (rec.tipo == TipoTransacao.GANHO) {
                             "Entrada de hoje"
                         } else {
-                            "Conta de hoje"
+                            "Conta que vence hoje"
                         }
                         val nome = rec.descricao.ifBlank { rec.categoria }
                         postar(

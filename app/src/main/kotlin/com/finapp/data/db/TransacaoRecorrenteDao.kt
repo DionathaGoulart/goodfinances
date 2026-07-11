@@ -51,12 +51,19 @@ interface TransacaoRecorrenteDao {
     @Query("DELETE FROM TransacaoRecorrente WHERE perfil = :perfil")
     suspend fun deletarTodas(perfil: Perfil)
 
-    /** Recorrências vencidas — devem gerar transações ao abrir o app. */
+    /**
+     * Recorrências que precisam MATERIALIZAR ocorrências (cursor dentro do
+     * [horizonte]) OU CONFIRMAR um recebimento vencido (o cursor de
+     * materialização fica meses à frente; sem a segunda condição o salário
+     * nunca seria auto-confirmado).
+     */
     @Query(
         """
         SELECT * FROM TransacaoRecorrente
-        WHERE deletado = 0 AND ativa = 1 AND proximoLancamento <= :hoje
+        WHERE deletado = 0 AND ativa = 1
+            AND (proximoLancamento <= :horizonte
+                OR (proximaConfirmacao IS NOT NULL AND proximaConfirmacao <= :hoje))
         """
     )
-    suspend fun obterVencidas(hoje: LocalDate): List<TransacaoRecorrente>
+    suspend fun obterVencidas(horizonte: LocalDate, hoje: LocalDate): List<TransacaoRecorrente>
 }
