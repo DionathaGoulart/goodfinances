@@ -62,6 +62,7 @@ fun OnibusScreen(viewModel: OnibusViewModel = hiltViewModel()) {
     val projecao by viewModel.projecao.collectAsStateWithLifecycle()
     val contextos by viewModel.contextos.collectAsStateWithLifecycle()
     val perfilDados by viewModel.perfilDados.collectAsStateWithLifecycle()
+    val estadoDia by viewModel.estadoDia.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
@@ -144,6 +145,65 @@ fun OnibusScreen(viewModel: OnibusViewModel = hiltViewModel()) {
                         onCheckedChange = null
                     )
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CampoHora(
+                        hora = config.horaIda.hour,
+                        rotulo = "Ida às (0–23h)",
+                        onHora = viewModel::definirHoraIda,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (config.idaEVolta) {
+                        CampoHora(
+                            hora = config.horaVolta.hour,
+                            rotulo = "Volta às (0–23h)",
+                            onHora = viewModel::definirHoraVolta,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                Text(
+                    text = "Nos dias marcados o app desconta as passagens sozinho " +
+                        "nesses horários.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ---------- Check-in de hoje ----------
+            CartaoSecao {
+                Text(
+                    text = "Hoje",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = estadoDia.idaUsada,
+                        onClick = { viewModel.alternarCheckin(ida = true) },
+                        label = { Text(if (estadoDia.idaUsada) "Ida ✓" else "Ida") }
+                    )
+                    if (config.idaEVolta) {
+                        FilterChip(
+                            selected = estadoDia.voltaUsada,
+                            onClick = { viewModel.alternarCheckin(ida = false) },
+                            label = { Text(if (estadoDia.voltaUsada) "Volta ✓" else "Volta") }
+                        )
+                    }
+                }
+                Text(
+                    text = "Nos dias de rotina o app marca sozinho na hora — toque " +
+                        "para ajustar (desmarcar devolve ao saldo). Em dias fora da " +
+                        "rotina, marque aqui quando usar.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -165,23 +225,35 @@ fun OnibusScreen(viewModel: OnibusViewModel = hiltViewModel()) {
 
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Usei o ônibus (fora da rotina)",
+                    text = "Passagens extras (além do check-in de hoje)",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                var extras by remember { mutableStateOf(1) }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     OutlinedButton(
-                        onClick = { viewModel.registrarUso(1) },
-                        modifier = Modifier.weight(1f)
+                        onClick = { if (extras > 1) extras-- },
+                        enabled = extras > 1
                     ) {
-                        Text("−1 passagem")
+                        Text("−")
+                    }
+                    Text(
+                        text = "$extras",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    OutlinedButton(onClick = { if (extras < 20) extras++ }) {
+                        Text("+")
                     }
                     OutlinedButton(
-                        onClick = { viewModel.registrarUso(2) },
+                        onClick = { viewModel.registrarUso(extras) },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Ida e volta")
+                        Text(if (extras == 1) "Descontar 1 passagem" else "Descontar $extras")
                     }
                 }
 
@@ -400,6 +472,28 @@ private fun CampoMoeda(
         singleLine = true,
         isError = isError,
         supportingText = supportingText,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier
+    )
+}
+
+/** Campo de hora cheia (0–23): valida e só propaga valores válidos. */
+@Composable
+private fun CampoHora(
+    hora: Int,
+    rotulo: String,
+    onHora: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var texto by remember(hora) { mutableStateOf(hora.toString()) }
+    OutlinedTextField(
+        value = texto,
+        onValueChange = { novo ->
+            texto = novo.filter(Char::isDigit).take(2)
+            texto.toIntOrNull()?.takeIf { it in 0..23 }?.let(onHora)
+        },
+        label = { Text(rotulo) },
+        singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = modifier
     )

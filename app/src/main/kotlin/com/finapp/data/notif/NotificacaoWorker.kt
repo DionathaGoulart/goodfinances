@@ -6,6 +6,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.finapp.data.OnibusManager
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -26,6 +27,8 @@ class NotificacaoWorker(
     @InstallIn(SingletonComponent::class)
     interface NotificacaoEntryPoint {
         fun notificacaoManager(): NotificacaoManager
+
+        fun onibusManager(): OnibusManager
     }
 
     override suspend fun doWork(): Result {
@@ -33,6 +36,9 @@ class NotificacaoWorker(
             applicationContext,
             NotificacaoEntryPoint::class.java
         )
+        // Passagens de ônibus dos dias de rotina: garante o desconto mesmo
+        // sem abrir o app (idempotente — cursor + flags do dia)
+        runCatching { entryPoint.onibusManager().processarDescontosAutomaticos() }
         return runCatching { entryPoint.notificacaoManager().avaliar() }
             .fold(onSuccess = { Result.success() }, onFailure = { Result.retry() })
     }

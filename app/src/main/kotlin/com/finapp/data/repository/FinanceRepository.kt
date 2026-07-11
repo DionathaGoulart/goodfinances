@@ -40,7 +40,8 @@ class FinanceRepository @Inject constructor(
     private val transacaoRecorrenteDao: TransacaoRecorrenteDao,
     private val cartaoDao: CartaoDao,
     private val metaDao: MetaDao,
-    private val contaAgendadaDao: ContaAgendadaDao
+    private val contaAgendadaDao: ContaAgendadaDao,
+    private val perfilManager: com.finapp.data.PerfilManager
 ) {
 
     private fun agora() = System.currentTimeMillis()
@@ -183,9 +184,32 @@ class FinanceRepository @Inject constructor(
     fun observarSaldoTotal(perfil: Perfil): Flow<Long> =
         transacaoDao.observarSaldoTotal(perfil)
 
-    /** A pagar no período (gastos pendentes - ganhos pendentes), em centavos. */
-    fun observarPendentePeriodo(perfil: Perfil, inicio: LocalDate, fim: LocalDate): Flow<Long> =
-        transacaoDao.observarPendentePeriodo(perfil, inicio, fim)
+    /**
+     * TOTAL da compra parcelada a que uma parcela "base (i/N)" pertence
+     * (soma das N parcelas vivas). Informativo na edição da parcela.
+     */
+    suspend fun somarCompraParcelada(
+        perfil: Perfil,
+        cartaoUuid: String,
+        descricaoBase: String,
+        totalParcelas: Int
+    ): Long {
+        val baseEscapada = descricaoBase
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        return transacaoDao.somarParcelasIrmas(
+            perfil, cartaoUuid, "$baseEscapada (%/$totalParcelas)"
+        )
+    }
+
+    /** Pendências do período por tipo: GASTO = a pagar, GANHO = a receber. */
+    fun observarPendentePorTipo(
+        perfil: Perfil,
+        tipo: TipoTransacao,
+        inicio: LocalDate,
+        fim: LocalDate
+    ): Flow<Long> = transacaoDao.observarPendentePorTipo(perfil, tipo, inicio, fim)
 
     fun observarGanhos(perfil: Perfil, inicio: LocalDate, fim: LocalDate): Flow<Long> =
         transacaoDao.observarSomaPorTipo(perfil, TipoTransacao.GANHO, inicio, fim)
@@ -411,14 +435,64 @@ class FinanceRepository @Inject constructor(
 
     suspend fun listarCartoes(perfil: Perfil): List<Cartao> = cartaoDao.listarTodos(perfil)
 
-    suspend fun inserirCartao(cartao: Cartao): Long = cartaoDao.inserir(cartao)
+    suspend fun inserirCartao(cartao: Cartao): Long {
+        val id = cartaoDao.inserir(cartao)
+        sincronizarEspelhoCartaoNaCasa(cartao)
+        return id
+    }
 
-    suspend fun atualizarCartao(cartao: Cartao) =
-        cartaoDao.atualizar(cartao.copy(atualizadoEm = agora()))
+    suspend fun atualizarCartao(cartao: Cartao) {
+        val atualizado = cartao.copy(atualizadoEm = agora())
+        cartaoDao.atualizar(atualizado)
+        sincronizarEspelhoCartaoNaCasa(atualizado)
+    }
 
-    /** Deleção lógica (tombstone). */
-    suspend fun deletarCartao(cartao: Cartao) =
-        cartaoDao.atualizar(cartao.copy(deletado = true, atualizadoEm = agora()))
+    /** Deleção lógica (tombstone) — tombstona junto o espelho na Casa. */
+    suspend fun deletarCartao(cartao: Cartao) {
+        val deletado = cartao.copy(deletado = true, atualizadoEm = agora())
+        cartaoDao.atualizar(deletado)
+        sincronizarEspelhoCartaoNaCasa(deletado)
+    }
+
+    /**
+     * Upsert do espelho na Casa de um cartão pessoal (one-way: editar/deletar
+     * o original propaga para o espelho; mexer no espelho NÃO volta para o
+     * original — na Casa ele é read-only). O uuid determinístico faz os
+     * aparelhos da mesma conta convergirem para a mesma linha, e o sync da
+     * Casa (balde CASA) leva o espelho aos outros membros sozinho.
+     * Empresa (CNPJ/MEI_NEGOCIO) fica de fora por construção.
+     */
+    private suspend fun sincronizarEspelhoCartaoNaCasa(original: Cartao) {
+        if (original.perfil !in Perfil.BALDES_PESSOAIS) return
+        if (!perfilManager.temCasa()) return
+        val uuidEspelho = uuidEspelhoCartao(original.uuid)
+        val existente = cartaoDao.obterPorUuid(uuidEspelho)
+        val espelho = Cartao(
+            id = existente?.id ?: 0,
+            uuid = uuidEspelho,
+            nome = original.nome,
+            diaFechamento = original.diaFechamento,
+            diaVencimento = original.diaVencimento,
+            cor = original.cor,
+            perfil = Perfil.CASA,
+            origemUuid = original.uuid,
+            atualizadoEm = agora(),
+            deletado = original.deletado
+        )
+        if (existente == null) cartaoDao.inserir(espelho) else cartaoDao.atualizar(espelho)
+    }
+
+    /**
+     * Reconciliação: espelha na Casa todos os cartões pessoais vivos. Rodada
+     * ao entrar/criar/carregar uma casa — cobre cartões criados antes da
+     * feature (ou antes de ter casa) e os que chegaram pelo sync pessoal
+     * direto no DAO (que não passa por [inserirCartao]).
+     */
+    suspend fun espelharCartoesPessoaisNaCasa() {
+        Perfil.BALDES_PESSOAIS.forEach { balde ->
+            cartaoDao.listarTodos(balde).forEach { sincronizarEspelhoCartaoNaCasa(it) }
+        }
+    }
 
     /**
      * Vencimento da fatura em que uma compra de [dataCompra] entra.
@@ -455,15 +529,25 @@ class FinanceRepository @Inject constructor(
     suspend fun listarRecorrentesAtivas(perfil: Perfil): List<TransacaoRecorrente> =
         transacaoRecorrenteDao.listarAtivas(perfil)
 
-    suspend fun inserirRecorrente(recorrente: TransacaoRecorrente): Long =
-        transacaoRecorrenteDao.inserir(
-            // Garante o dia desejado da recorrência mensal (ver [TransacaoRecorrente.diaMensal])
-            if (recorrente.frequencia == Frequencia.MENSAL && recorrente.diaMensal == 0) {
-                recorrente.copy(diaMensal = recorrente.proximoLancamento.dayOfMonth)
-            } else {
-                recorrente
-            }
-        )
+    suspend fun inserirRecorrente(recorrente: TransacaoRecorrente): Long {
+        // Garante o dia desejado da recorrência mensal (ver [TransacaoRecorrente.diaMensal])
+        var pronta = if (
+            recorrente.frequencia == Frequencia.MENSAL && recorrente.diaMensal == 0
+        ) {
+            recorrente.copy(diaMensal = recorrente.proximoLancamento.dayOfMonth)
+        } else {
+            recorrente
+        }
+        // GANHO mensal (salário, ganho repetido): o cursor de auto-recebimento
+        // nasce junto — cobre todos os caminhos de criação num lugar só
+        if (pronta.frequencia == Frequencia.MENSAL &&
+            pronta.tipo == TipoTransacao.GANHO &&
+            pronta.proximaConfirmacao == null
+        ) {
+            pronta = pronta.copy(proximaConfirmacao = pronta.proximoLancamento)
+        }
+        return transacaoRecorrenteDao.inserir(pronta)
+    }
 
     suspend fun atualizarRecorrente(recorrente: TransacaoRecorrente) =
         transacaoRecorrenteDao.atualizar(recorrente.copy(atualizadoEm = agora()))
@@ -474,72 +558,209 @@ class FinanceRepository @Inject constructor(
             recorrente.copy(deletado = true, atualizadoEm = agora())
         )
 
-    /**
-     * Lança as transações recorrentes vencidas e reagenda cada uma
-     * conforme a frequência. Chamar ao abrir o app.
-     */
     companion object {
         /** Categoria automática das transferências entre contextos. */
         const val NOME_TRANSFERENCIA = "Transferência"
+
+        /**
+         * Uuid determinístico do espelho na Casa de um cartão pessoal:
+         * todos os aparelhos derivam o mesmo uuid e o sync converge (LWW)
+         * em vez de duplicar.
+         */
+        fun uuidEspelhoCartao(uuidOriginal: String): String = java.util.UUID
+            .nameUUIDFromBytes("cartao-casa-$uuidOriginal".toByteArray())
+            .toString()
+
+        /**
+         * Uuid determinístico da ocorrência de uma recorrência numa data:
+         * reprocessar nunca duplica (o insert checa por uuid antes) e um
+         * tombstone antigo bloqueia a ressurreição da ocorrência apagada.
+         */
+        fun uuidOcorrenciaRecorrente(uuidRecorrente: String, data: LocalDate): String =
+            java.util.UUID
+                .nameUUIDFromBytes(
+                    "recorrencia-$uuidRecorrente-${data.toEpochDay()}".toByteArray()
+                )
+                .toString()
     }
 
     /**
+     * Materializa as ocorrências das recorrências (mensais até
+     * [MESES_HORIZONTE_MENSAL] meses à frente — a Home mostra as pendências
+     * ao navegar os meses futuros) e auto-confirma o GANHO mensal vencido
+     * (salário "cai" sozinho no dia). Chamar ao abrir o app.
+     *
      * [autorCasa]/[autorCasaUid]: autoria carimbada nos lançamentos gerados
      * no balde CASA (sem isso qualquer membro poderia editá-los).
      * Cada recorrência roda numa transação do Room: lançar as ocorrências e
-     * reagendar é atômico — cancelamento no meio não duplica lançamentos.
+     * reagendar é atômico — cancelamento no meio não duplica lançamentos; o
+     * uuid determinístico por (recorrência, data) blinda contra reprocesso.
      */
     suspend fun processarRecorrentesVencidas(
         hoje: LocalDate = LocalDate.now(),
         autorCasa: String = "",
         autorCasaUid: String = ""
     ) {
-        transacaoRecorrenteDao.obterVencidas(hoje).forEach { recorrente ->
+        val horizonte = YearMonth.from(hoje)
+            .plusMonths(MESES_HORIZONTE_MENSAL)
+            .atEndOfMonth()
+        transacaoRecorrenteDao.obterVencidas(horizonte, hoje).forEach { recorrente ->
             db.withTransaction {
+                // Cursor de auto-recebimento: backfill ANTES de materializar
+                // (nascesse depois, já estaria 12 meses à frente e pularia
+                // as confirmações reais)
+                var confirmacao = recorrente.proximaConfirmacao
+                if (confirmacao == null &&
+                    recorrente.frequencia == Frequencia.MENSAL &&
+                    recorrente.tipo == TipoTransacao.GANHO
+                ) {
+                    confirmacao = recorrente.proximoLancamento
+                }
+
+                // Materializa as ocorrências dentro do horizonte
                 var proxima = recorrente.proximoLancamento
-                // Lança todas as ocorrências pendentes (app pode ficar dias fechado)
-                while (!proxima.isAfter(hoje)) {
-                    transacaoDao.inserir(
-                        Transacao(
-                            valor = recorrente.valor,
-                            tipo = recorrente.tipo,
-                            categoria = recorrente.categoria,
-                            descricao = recorrente.descricao,
-                            data = proxima,
-                            perfil = recorrente.perfil,
-                            criadoPor = if (recorrente.perfil == Perfil.CASA) autorCasa else "",
-                            criadoPorUid = if (recorrente.perfil == Perfil.CASA) {
-                                autorCasaUid
-                            } else {
-                                ""
-                            },
-                            // Gasto recorrente tem data para pagar: nasce
-                            // pendente e só desconta quando marcado como pago
-                            pago = recorrente.tipo == TipoTransacao.GANHO
+                while (deveLancarRecorrente(recorrente, proxima, hoje)) {
+                    val uuidOcorrencia = uuidOcorrenciaRecorrente(recorrente.uuid, proxima)
+                    if (transacaoDao.obterPorUuid(uuidOcorrencia) == null) {
+                        transacaoDao.inserir(
+                            Transacao(
+                                uuid = uuidOcorrencia,
+                                valor = recorrente.valor,
+                                tipo = recorrente.tipo,
+                                categoria = recorrente.categoria,
+                                descricao = recorrente.descricao,
+                                data = proxima,
+                                perfil = recorrente.perfil,
+                                criadoPor = if (recorrente.perfil == Perfil.CASA) {
+                                    autorCasa
+                                } else {
+                                    ""
+                                },
+                                criadoPorUid = if (recorrente.perfil == Perfil.CASA) {
+                                    autorCasaUid
+                                } else {
+                                    ""
+                                },
+                                recorrenciaUuid = recorrente.uuid,
+                                // MENSAL nasce pendente ("a pagar"/"a receber",
+                                // como fatura); nas demais frequências o GANHO
+                                // entra recebido no próprio dia
+                                pago = if (recorrente.frequencia == Frequencia.MENSAL) {
+                                    false
+                                } else {
+                                    recorrente.tipo == TipoTransacao.GANHO
+                                }
+                            )
+                        )
+                    }
+                    proxima = proximaOcorrencia(
+                        recorrente.frequencia, recorrente.diaMensal, proxima
+                    )
+                }
+
+                // Auto-recebimento do GANHO mensal: confirma cada ocorrência
+                // cujo dia já chegou, UMA vez (desmarcar não é re-marcado)
+                while (confirmacao != null && !confirmacao.isAfter(hoje)) {
+                    transacaoDao.confirmarOcorrencia(recorrente.uuid, confirmacao, agora())
+                    confirmacao = proximaOcorrencia(
+                        Frequencia.MENSAL, recorrente.diaMensal, confirmacao
+                    )
+                }
+
+                // Passou do "dura até": a recorrência se encerra sozinha
+                val terminou = recorrente.terminaEm != null &&
+                    proxima.isAfter(recorrente.terminaEm)
+
+                // Só regrava se algo mudou (não re-carimbar atualizadoEm à toa)
+                if (proxima != recorrente.proximoLancamento ||
+                    confirmacao != recorrente.proximaConfirmacao ||
+                    terminou
+                ) {
+                    transacaoRecorrenteDao.atualizar(
+                        recorrente.copy(
+                            proximoLancamento = proxima,
+                            proximaConfirmacao = confirmacao,
+                            ativa = recorrente.ativa && !terminou,
+                            atualizadoEm = agora()
                         )
                     )
-                    proxima = when (recorrente.frequencia) {
-                        Frequencia.DIARIA -> proxima.plusDays(1)
-                        Frequencia.SEMANAL -> proxima.plusWeeks(1)
-                        // Reancora no dia desejado todo mês: plusMonths
-                        // encadeado truncaria 31 -> 28 em fevereiro e a
-                        // recorrência ficaria presa no dia 28 para sempre
-                        Frequencia.MENSAL -> {
-                            val dia = if (recorrente.diaMensal in 1..31) {
-                                recorrente.diaMensal
-                            } else {
-                                proxima.dayOfMonth
-                            }
-                            val proximoMes = YearMonth.from(proxima).plusMonths(1)
-                            proximoMes.atDay(dia.coerceAtMost(proximoMes.lengthOfMonth()))
-                        }
-                        Frequencia.ANUAL -> proxima.plusYears(1)
-                    }
                 }
-                transacaoRecorrenteDao.atualizar(
-                    recorrente.copy(proximoLancamento = proxima, atualizadoEm = agora())
+            }
+        }
+    }
+
+    /**
+     * Edita a recorrência e propaga IN-PLACE para as ocorrências futuras
+     * NÃO PAGAS vinculadas: novo valor; se o [novoDia] mudou, reancora a
+     * data no mesmo mês. NUNCA reancora o cursor para trás (as ocorrências
+     * já materializadas cobrem os próximos meses). Reduzir [novoTerminaEm]
+     * tombstona as ocorrências além do novo limite.
+     */
+    suspend fun atualizarRecorrenteComOcorrencias(
+        recorrente: TransacaoRecorrente,
+        novoValor: Long,
+        novoDia: Int = recorrente.diaMensal,
+        novoTerminaEm: LocalDate? = recorrente.terminaEm,
+        hoje: LocalDate = LocalDate.now()
+    ) {
+        db.withTransaction {
+            val momento = agora()
+            val mensal = recorrente.frequencia == Frequencia.MENSAL
+            val diaMudou = mensal && novoDia in 1..31 && novoDia != recorrente.diaMensal
+            transacaoDao.listarOcorrenciasPendentes(recorrente.uuid, hoje).forEach { ocorrencia ->
+                transacaoDao.atualizar(
+                    ocorrencia.copy(
+                        valor = novoValor,
+                        data = if (diaMudou) {
+                            ajustarDiaNoMes(ocorrencia.data, novoDia)
+                        } else {
+                            ocorrencia.data
+                        },
+                        atualizadoEm = momento
+                    )
                 )
             }
+            val terminaAntigo = recorrente.terminaEm
+            if (novoTerminaEm != null &&
+                (terminaAntigo == null || novoTerminaEm < terminaAntigo)
+            ) {
+                transacaoDao.tombstonarOcorrenciasApos(recorrente.uuid, novoTerminaEm, momento)
+            }
+            transacaoRecorrenteDao.atualizar(
+                recorrente.copy(
+                    valor = novoValor,
+                    diaMensal = if (diaMudou) novoDia else recorrente.diaMensal,
+                    terminaEm = novoTerminaEm,
+                    proximoLancamento = if (diaMudou) {
+                        ajustarDiaNoMes(recorrente.proximoLancamento, novoDia)
+                    } else {
+                        recorrente.proximoLancamento
+                    },
+                    proximaConfirmacao = if (diaMudou) {
+                        recorrente.proximaConfirmacao?.let { ajustarDiaNoMes(it, novoDia) }
+                    } else {
+                        recorrente.proximaConfirmacao
+                    },
+                    atualizadoEm = momento
+                )
+            )
+        }
+    }
+
+    /** Encerra a recorrência e tombstona as pendências futuras vinculadas. */
+    suspend fun encerrarRecorrenteComOcorrencias(
+        recorrente: TransacaoRecorrente,
+        hoje: LocalDate = LocalDate.now()
+    ) {
+        db.withTransaction {
+            val momento = agora()
+            // aposDe exclusivo: ontem inclui as pendências de hoje em diante
+            transacaoDao.tombstonarOcorrenciasApos(
+                recorrente.uuid, hoje.minusDays(1), momento
+            )
+            transacaoRecorrenteDao.atualizar(
+                recorrente.copy(ativa = false, atualizadoEm = momento)
+            )
         }
     }
 

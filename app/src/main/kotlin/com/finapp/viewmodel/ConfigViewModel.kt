@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.YearMonth
 import javax.inject.Inject
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -243,11 +244,10 @@ class ConfigViewModel @Inject constructor(
             .firstOrNull { it.descricao == DESCRICAO_SALARIO }
 
         if (configuracao.salarioFixo <= 0L) {
-            existente?.let { repository.atualizarRecorrente(it.copy(ativa = false)) }
+            // Encerra e some com as pendências "a receber" já materializadas
+            existente?.let { repository.encerrarRecorrenteComOcorrencias(it) }
             return
         }
-
-        val proximo = proximoLancamentoMensal(configuracao.diaRecebimento, existente)
 
         if (existente == null) {
             repository.inserirRecorrente(
@@ -257,45 +257,37 @@ class ConfigViewModel @Inject constructor(
                     categoria = "Salário",
                     descricao = DESCRICAO_SALARIO,
                     frequencia = Frequencia.MENSAL,
-                    proximoLancamento = proximo,
+                    proximoLancamento = proximoLancamentoMensal(configuracao.diaRecebimento),
                     diaMensal = configuracao.diaRecebimento,
                     perfil = perfil
                 )
             )
         } else {
-            repository.atualizarRecorrente(
-                existente.copy(
-                    valor = configuracao.salarioFixo,
-                    proximoLancamento = proximo,
-                    diaMensal = configuracao.diaRecebimento
-                )
+            // Propaga para as ocorrências futuras não recebidas; o cursor
+            // NUNCA volta para trás (as ocorrências já cobrem os meses)
+            repository.atualizarRecorrenteComOcorrencias(
+                existente,
+                novoValor = configuracao.salarioFixo,
+                novoDia = configuracao.diaRecebimento
             )
         }
     }
 
     /**
-     * Próxima data de lançamento de uma recorrência mensal no [dia] pedido.
-     * Se a recorrência [existente] JÁ lançou hoje (o agendamento dela está no
-     * futuro e o dia pedido é hoje), pula para o mês seguinte — reagendar
-     * para hoje lançaria a mesma ocorrência de novo (salário/DAS duplicado).
+     * Primeira data de lançamento de uma recorrência mensal NOVA no [dia]
+     * pedido: neste mês se o dia ainda não passou, senão no mês seguinte.
+     * (Edição não passa por aqui — propaga in-place nas ocorrências.)
      */
-    private fun proximoLancamentoMensal(
-        dia: Int,
-        existente: TransacaoRecorrente?
-    ): LocalDate {
+    private fun proximoLancamentoMensal(dia: Int): LocalDate {
         val hoje = LocalDate.now()
         // Dia 29-31 em mês curto cai no último dia (o diaMensal preserva a
         // intenção para os meses seguintes)
-        val candidato = if (hoje.dayOfMonth <= dia) {
+        return if (hoje.dayOfMonth <= dia) {
             hoje.withDayOfMonth(dia.coerceAtMost(hoje.lengthOfMonth()))
         } else {
             val proximoMes = hoje.plusMonths(1)
             proximoMes.withDayOfMonth(dia.coerceAtMost(proximoMes.lengthOfMonth()))
         }
-        val jaLancouHoje = candidato == hoje &&
-            existente != null &&
-            existente.proximoLancamento.isAfter(hoje)
-        return if (jaLancouHoje) candidato.plusMonths(1) else candidato
     }
 
     /**
@@ -335,11 +327,9 @@ class ConfigViewModel @Inject constructor(
             .firstOrNull { it.descricao == DESCRICAO_DAS }
 
         if (valorCentavos <= 0L) {
-            existente?.let { repository.atualizarRecorrente(it.copy(ativa = false)) }
+            existente?.let { repository.encerrarRecorrenteComOcorrencias(it) }
             return
         }
-
-        val proximo = proximoLancamentoMensal(DIA_DAS, existente)
 
         if (existente == null) {
             repository.inserirRecorrente(
@@ -349,28 +339,32 @@ class ConfigViewModel @Inject constructor(
                     categoria = CATEGORIA_DAS,
                     descricao = DESCRICAO_DAS,
                     frequencia = Frequencia.MENSAL,
-                    proximoLancamento = proximo,
+                    proximoLancamento = proximoLancamentoMensal(DIA_DAS),
                     diaMensal = DIA_DAS,
                     perfil = perfil
                 )
             )
         } else {
-            repository.atualizarRecorrente(
-                existente.copy(
-                    valor = valorCentavos,
-                    proximoLancamento = proximo,
-                    diaMensal = DIA_DAS
-                )
+            repository.atualizarRecorrenteComOcorrencias(
+                existente,
+                novoValor = valorCentavos,
+                novoDia = DIA_DAS
             )
         }
     }
 
     /**
-     * Edita valor e (nas mensais) o dia de lançamento de uma recorrência.
+     * Edita valor, (nas mensais) o dia de lançamento e o "dura até" de uma
+     * recorrência, propagando para as ocorrências futuras ainda não pagas.
      * Salário fixo e DAS são gerenciados pelos campos próprios da Config —
      * a UI não abre este fluxo para eles (manteria dois donos do mesmo dado).
      */
-    fun editarRecorrente(recorrente: TransacaoRecorrente, valorCentavos: Long, dia: Int) {
+    fun editarRecorrente(
+        recorrente: TransacaoRecorrente,
+        valorCentavos: Long,
+        dia: Int,
+        terminaEm: LocalDate? = recorrente.terminaEm
+    ) {
         if (valorCentavos <= 0L) {
             emitir("Informe um valor maior que zero")
             return
@@ -380,18 +374,19 @@ class ConfigViewModel @Inject constructor(
             emitir("Dia deve estar entre 1 e 31")
             return
         }
+        if (terminaEm != null && YearMonth.from(terminaEm) < YearMonth.now()) {
+            emitir("\"Dura até\" não pode ser um mês passado")
+            return
+        }
         viewModelScope.launch {
             runCatching {
-                val atualizada = if (mensal && dia != recorrente.diaMensal) {
-                    recorrente.copy(
-                        valor = valorCentavos,
-                        diaMensal = dia,
-                        proximoLancamento = proximoLancamentoMensal(dia, recorrente)
-                    )
-                } else {
-                    recorrente.copy(valor = valorCentavos)
-                }
-                repository.atualizarRecorrente(atualizada)
+                // Propaga in-place para as ocorrências futuras não pagas
+                repository.atualizarRecorrenteComOcorrencias(
+                    recorrente,
+                    novoValor = valorCentavos,
+                    novoDia = if (mensal) dia else recorrente.diaMensal,
+                    novoTerminaEm = terminaEm
+                )
             }
                 .onSuccess { emitir("Recorrência atualizada") }
                 .onFailure { emitir("Erro ao atualizar recorrência") }
@@ -404,9 +399,64 @@ class ConfigViewModel @Inject constructor(
 
     fun encerrarRecorrente(recorrente: TransacaoRecorrente) {
         viewModelScope.launch {
-            runCatching { repository.atualizarRecorrente(recorrente.copy(ativa = false)) }
+            // Some também com as pendências futuras já materializadas
+            runCatching { repository.encerrarRecorrenteComOcorrencias(recorrente) }
                 .onSuccess { emitir("Recorrência encerrada") }
                 .onFailure { emitir("Erro ao encerrar recorrência") }
+        }
+    }
+
+    /**
+     * Gasto fixo mensal (internet, aluguel...) criado direto na Config: vira
+     * recorrência mensal de GASTO que entra como pendência no início de cada
+     * mês com data no [diaVencimento] — "a pagar" até o usuário dar baixa.
+     */
+    fun adicionarGastoFrequente(
+        descricao: String,
+        valorCentavos: Long,
+        categoria: String,
+        diaVencimento: Int,
+        terminaEm: LocalDate? = null
+    ) {
+        val descricaoLimpa = descricao.trim()
+        if (descricaoLimpa.isEmpty()) {
+            emitir("Informe a descrição do gasto")
+            return
+        }
+        if (valorCentavos <= 0L) {
+            emitir("Informe um valor maior que zero")
+            return
+        }
+        if (categoria.isBlank()) {
+            emitir("Escolha uma categoria")
+            return
+        }
+        if (diaVencimento !in 1..31) {
+            emitir("Dia de vencimento deve estar entre 1 e 31")
+            return
+        }
+        if (terminaEm != null && YearMonth.from(terminaEm) < YearMonth.now()) {
+            emitir("\"Dura até\" não pode ser um mês passado")
+            return
+        }
+        viewModelScope.launch {
+            runCatching {
+                repository.inserirRecorrente(
+                    TransacaoRecorrente(
+                        valor = valorCentavos,
+                        tipo = TipoTransacao.GASTO,
+                        categoria = categoria,
+                        descricao = descricaoLimpa,
+                        frequencia = Frequencia.MENSAL,
+                        proximoLancamento = proximoLancamentoMensal(diaVencimento),
+                        diaMensal = diaVencimento,
+                        perfil = perfilDados.value,
+                        terminaEm = terminaEm
+                    )
+                )
+            }
+                .onSuccess { emitir("Gasto frequente criado — entra no \"a pagar\" todo mês") }
+                .onFailure { emitir("Erro ao criar gasto frequente") }
         }
     }
 
@@ -449,6 +499,12 @@ class ConfigViewModel @Inject constructor(
         diaVencimento: Int,
         cor: String
     ) {
+        // Espelho na Casa é read-only: a edição no espelho não voltaria ao
+        // original e seria sobrescrita na próxima edição do dono
+        if (cartao.origemUuid.isNotBlank()) {
+            emitir("Cartão pessoal espelhado — edite no contexto Pessoal do dono")
+            return
+        }
         val nomeLimpo = nome.trim()
         if (nomeLimpo.isEmpty()) {
             emitir("Informe o nome do cartão")
@@ -475,6 +531,10 @@ class ConfigViewModel @Inject constructor(
     }
 
     fun removerCartao(cartao: Cartao) {
+        if (cartao.origemUuid.isNotBlank()) {
+            emitir("Cartão pessoal espelhado — remova no contexto Pessoal do dono")
+            return
+        }
         viewModelScope.launch {
             runCatching { repository.deletarCartao(cartao) }
                 .onSuccess { emitir("Cartão removido") }

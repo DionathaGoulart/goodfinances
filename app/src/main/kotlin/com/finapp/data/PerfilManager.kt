@@ -83,6 +83,9 @@ class PerfilManager @Inject constructor(
         _perfilDados.value = contexto
     }
 
+    /** True quando o usuário está numa casa (o repository usa para espelhar cartões). */
+    fun temCasa(): Boolean = temCasa
+
     /** Chamado pelo CasaManager quando o usuário entra/sai de uma casa. */
     fun definirTemCasa(tem: Boolean) {
         temCasa = tem

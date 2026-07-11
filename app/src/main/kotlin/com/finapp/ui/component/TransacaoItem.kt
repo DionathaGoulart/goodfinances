@@ -259,9 +259,15 @@ fun TransacaoLinha(
             if (podeEditar && onAlternarPago != null) {
                 DropdownMenuItem(
                     text = {
+                        // Vocabulário por tipo: ganho "recebe", gasto "paga"
+                        val ehGanho = transacao.tipo == TipoTransacao.GANHO
                         Text(
-                            if (transacao.pago) "Marcar como pendente"
-                            else "Marcar como pago"
+                            when {
+                                transacao.pago && ehGanho -> "Marcar como a receber"
+                                transacao.pago -> "Marcar como pendente"
+                                ehGanho -> "Marcar como recebido"
+                                else -> "Marcar como pago"
+                            }
                         )
                     },
                     leadingIcon = {

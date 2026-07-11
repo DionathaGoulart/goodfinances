@@ -148,6 +148,11 @@ class ExportManager @Inject constructor(
                         if (t.cartaoUuid.isNotBlank()) put("cartaoUuid", t.cartaoUuid)
                         t.dataCompra?.let { put("dataCompra", it.toString()) }
                         if (t.oculto) put("oculto", true)
+                        // Vínculo com a recorrência: sem ele, editar/encerrar
+                        // a recorrência não alcança as ocorrências restauradas
+                        if (t.recorrenciaUuid.isNotBlank()) {
+                            put("recorrenciaUuid", t.recorrenciaUuid)
+                        }
                     })
                 }
             })

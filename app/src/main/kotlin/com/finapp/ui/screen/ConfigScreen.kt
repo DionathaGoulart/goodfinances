@@ -130,6 +130,7 @@ fun ConfigScreen(
     var dialogCategoriaAberto by remember { mutableStateOf(false) }
     var categoriaEmEdicao by remember { mutableStateOf<Categoria?>(null) }
     var recorrenteEmEdicao by remember { mutableStateOf<TransacaoRecorrente?>(null) }
+    var dialogGastoFrequenteAberto by remember { mutableStateOf(false) }
     var confirmarLimpezaAberto by remember { mutableStateOf(false) }
 
     // Mensagens dos ViewModels viram snackbar (mesmo padrão das outras telas)
@@ -306,12 +307,24 @@ fun ConfigScreen(
                     )
                 } else {
                     cartoes.forEach { cartao ->
+                        // Espelho de cartão pessoal na Casa: read-only aqui —
+                        // o dono edita/remove no contexto Pessoal dele
+                        val espelhado = cartao.origemUuid.isNotBlank()
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    cartaoEmEdicao = cartao
-                                    dialogCartaoAberto = true
+                                    if (espelhado) {
+                                        escopo.launch {
+                                            snackbarHostState.showSnackbar(
+                                                "Cartão pessoal espelhado — edite " +
+                                                    "no contexto Pessoal do dono"
+                                            )
+                                        }
+                                    } else {
+                                        cartaoEmEdicao = cartao
+                                        dialogCartaoAberto = true
+                                    }
                                 }
                                 .padding(vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -334,13 +347,16 @@ fun ConfigScreen(
                                 )
                                 Text(
                                     text = "fecha dia ${cartao.diaFechamento} · " +
-                                        "vence dia ${cartao.diaVencimento}",
+                                        "vence dia ${cartao.diaVencimento}" +
+                                        if (espelhado) " · espelhado do Pessoal" else "",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            TextButton(onClick = { cartaoParaRemover = cartao }) {
-                                Text("Remover")
+                            if (!espelhado) {
+                                TextButton(onClick = { cartaoParaRemover = cartao }) {
+                                    Text("Remover")
+                                }
                             }
                         }
                     }
@@ -415,18 +431,27 @@ fun ConfigScreen(
 
                 DivisorConfig()
 
-                // Recorrentes
+                // Gastos frequentes e recorrências
                 val recorrentes by viewModel.recorrentes.collectAsStateWithLifecycle()
-                Text(
-                    text = "Recorrentes",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                if (recorrentes.isEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "Nenhuma recorrência ativa. Marque \"Repetir todo mês\" " +
-                            "ao criar uma transação, ou configure o salário fixo.",
+                        text = "Gastos frequentes",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { dialogGastoFrequenteAberto = true }) {
+                        Text("+ Novo")
+                    }
+                }
+                if (recorrentes.isEmpty()) {
+                    Text(
+                        text = "Contas fixas do mês (internet, aluguel...): cadastre com o " +
+                            "dia do vencimento e elas entram no \"a pagar\" todo mês até " +
+                            "você dar baixa.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -459,9 +484,26 @@ fun ConfigScreen(
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
+                                // Mensal materializa meses à frente (o cursor
+                                // fica longe): o que importa é o dia do mês
+                                val quando = if (
+                                    recorrente.frequencia == Frequencia.MENSAL &&
+                                    recorrente.diaMensal in 1..31
+                                ) {
+                                    if (recorrente.tipo == TipoTransacao.GASTO) {
+                                        "vence dia ${recorrente.diaMensal}"
+                                    } else {
+                                        "recebe dia ${recorrente.diaMensal}"
+                                    }
+                                } else {
+                                    "próx. ${Formatadores.dataCurta(recorrente.proximoLancamento)}"
+                                }
+                                val ate = recorrente.terminaEm?.let {
+                                    " · até %02d/%d".format(it.monthValue, it.year)
+                                }.orEmpty()
                                 Text(
                                     text = "${Formatadores.moeda(recorrente.valor)} · " +
-                                        "próx. ${Formatadores.dataCurta(recorrente.proximoLancamento)}" +
+                                        quando + ate +
                                         if (gerenciada) "" else " · toque para editar",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1255,6 +1297,12 @@ fun ConfigScreen(
         }
         var erroValor by remember(recorrente.id) { mutableStateOf<String?>(null) }
         var erroDia by remember(recorrente.id) { mutableStateOf<String?>(null) }
+        var duraAteTexto by remember(recorrente.id) {
+            mutableStateOf(
+                recorrente.terminaEm?.let { "%02d/%d".format(it.monthValue, it.year) } ?: ""
+            )
+        }
+        var erroDuraAte by remember(recorrente.id) { mutableStateOf<String?>(null) }
         val mensal = recorrente.frequencia == Frequencia.MENSAL
 
         AlertDialog(
@@ -1289,6 +1337,22 @@ fun ConfigScreen(
                             supportingText = { erroDia?.let { Text(it) } }
                         )
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = duraAteTexto,
+                        onValueChange = {
+                            duraAteTexto = it.filter { c -> c.isDigit() || c == '/' }.take(7)
+                            erroDuraAte = null
+                        },
+                        label = { Text("Dura até (MM/AAAA, opcional)") },
+                        placeholder = { Text("Ex: 12/2026") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        isError = erroDuraAte != null,
+                        supportingText = {
+                            Text(erroDuraAte ?: "Vazio = repete sem data de fim")
+                        }
+                    )
                 }
             },
             confirmButton = {
@@ -1296,11 +1360,16 @@ fun ConfigScreen(
                     onClick = {
                         val centavos = reaisParaCentavos(valorTexto)
                         val dia = if (mensal) diaTexto.toIntOrNull() ?: 0 else recorrente.diaMensal
+                        val duraAte = parseMesAno(duraAteTexto)
                         when {
                             centavos <= 0L -> erroValor = "Informe um valor maior que zero"
                             mensal && dia !in 1..31 -> erroDia = "Dia deve estar entre 1 e 31"
+                            duraAteTexto.isNotBlank() && duraAte == null ->
+                                erroDuraAte = "Use o formato MM/AAAA"
+                            duraAte != null && duraAte < LocalDate.now() ->
+                                erroDuraAte = "Não pode ser um mês passado"
                             else -> {
-                                viewModel.editarRecorrente(recorrente, centavos, dia)
+                                viewModel.editarRecorrente(recorrente, centavos, dia, duraAte)
                                 recorrenteEmEdicao = null
                             }
                         }
@@ -1311,6 +1380,139 @@ fun ConfigScreen(
             },
             dismissButton = {
                 TextButton(onClick = { recorrenteEmEdicao = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // ---------- Dialog: novo gasto frequente ----------
+    if (dialogGastoFrequenteAberto) {
+        var descricao by remember { mutableStateOf("") }
+        var valorTexto by remember { mutableStateOf("") }
+        var categoriaEscolhida by remember { mutableStateOf("") }
+        var diaTexto by remember { mutableStateOf("") }
+        var erroValor by remember { mutableStateOf<String?>(null) }
+        var erroDia by remember { mutableStateOf<String?>(null) }
+        var duraAteTexto by remember { mutableStateOf("") }
+        var erroDuraAte by remember { mutableStateOf<String?>(null) }
+        // Categoria é seleção pura (sem digitação), como no TransacaoModal
+        val categoriasGasto = categorias.filter {
+            it.tipo == TipoTransacao.GASTO && !it.arquivada
+        }
+
+        AlertDialog(
+            onDismissRequest = { dialogGastoFrequenteAberto = false },
+            title = { Text("Novo gasto frequente") },
+            text = {
+                Column {
+                    Text(
+                        text = "Entra como pendência no início de cada mês, com o dia " +
+                            "do vencimento — fica no \"a pagar\" até você dar baixa.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = descricao,
+                        onValueChange = { if (it.length <= 30) descricao = it },
+                        label = { Text("Descrição (ex: Internet)") },
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = valorTexto,
+                            onValueChange = {
+                                valorTexto = it
+                                erroValor = null
+                            },
+                            label = { Text("Valor (R$)") },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Decimal
+                            ),
+                            singleLine = true,
+                            isError = erroValor != null,
+                            supportingText = { erroValor?.let { Text(it) } },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = diaTexto,
+                            onValueChange = {
+                                diaTexto = it.filter(Char::isDigit).take(2)
+                                erroDia = null
+                            },
+                            label = { Text("Vence dia") },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Number
+                            ),
+                            singleLine = true,
+                            isError = erroDia != null,
+                            supportingText = { erroDia?.let { Text(it) } },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = duraAteTexto,
+                        onValueChange = {
+                            duraAteTexto = it.filter { c -> c.isDigit() || c == '/' }.take(7)
+                            erroDuraAte = null
+                        },
+                        label = { Text("Dura até (MM/AAAA, opcional)") },
+                        placeholder = { Text("Ex: 12/2026") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        isError = erroDuraAte != null,
+                        supportingText = {
+                            Text(erroDuraAte ?: "Vazio = repete sem data de fim")
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Categoria",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        categoriasGasto.forEach { categoria ->
+                            FilterChip(
+                                selected = categoriaEscolhida == categoria.nome,
+                                onClick = { categoriaEscolhida = categoria.nome },
+                                label = { Text(categoria.nome) }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val centavos = reaisParaCentavos(valorTexto)
+                        val dia = diaTexto.toIntOrNull() ?: 0
+                        val duraAte = parseMesAno(duraAteTexto)
+                        when {
+                            centavos <= 0L -> erroValor = "Informe um valor maior que zero"
+                            dia !in 1..31 -> erroDia = "Dia entre 1 e 31"
+                            duraAteTexto.isNotBlank() && duraAte == null ->
+                                erroDuraAte = "Use o formato MM/AAAA"
+                            duraAte != null && duraAte < LocalDate.now() ->
+                                erroDuraAte = "Não pode ser um mês passado"
+                            else -> {
+                                viewModel.adicionarGastoFrequente(
+                                    descricao, centavos, categoriaEscolhida, dia, duraAte
+                                )
+                                dialogGastoFrequenteAberto = false
+                            }
+                        }
+                    }
+                ) {
+                    Text("Adicionar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dialogGastoFrequenteAberto = false }) {
                     Text("Cancelar")
                 }
             }
@@ -1622,6 +1824,18 @@ private fun LinhaConfig(
             Text(acao)
         }
     }
+}
+
+/**
+ * "MM/AAAA" -> último dia daquele mês (o "dura até" da recorrência).
+ * Null para vazio ou formato/mês inválido.
+ */
+private fun parseMesAno(texto: String): LocalDate? {
+    val casamento = Regex("""^(\d{1,2})/(\d{4})$""").find(texto.trim()) ?: return null
+    val mes = casamento.groupValues[1].toIntOrNull() ?: return null
+    val ano = casamento.groupValues[2].toIntOrNull() ?: return null
+    if (mes !in 1..12) return null
+    return java.time.YearMonth.of(ano, mes).atEndOfMonth()
 }
 
 /** Converte reais ("3.500,50" BR, "1.500" ou "3500.50") para centavos; vazio = 0, inválido = -1. */

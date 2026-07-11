@@ -7,9 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.finapp.data.Atualizacao
 import com.finapp.data.AtualizacaoManager
 import com.finapp.data.EstadoDownload
+import com.finapp.data.OnibusManager
 import com.finapp.data.PerfilManager
 import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Perfil
+import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.db.entities.podeSerEditadaPor
 import com.finapp.data.io.BackupManager
@@ -65,6 +67,7 @@ class HomeViewModel @Inject constructor(
     private val backupManager: BackupManager,
     private val notaFiscalManager: NotaFiscalManager,
     private val atualizacaoManager: AtualizacaoManager,
+    private val onibusManager: OnibusManager,
     syncManager: SyncManager,
     private val casaManager: CasaManager
 ) : ViewModel() {
@@ -115,14 +118,23 @@ class HomeViewModel @Inject constructor(
         .flatMapLatest { repository.observarSaldoTotal(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
-    /**
-     * A pagar no mês visualizado (centavos): gastos pendentes - ganhos
-     * pendentes. Saldo projetado = [saldoTotal] - este valor.
-     */
-    val pendenteMes: StateFlow<Long> =
+    /** A pagar no mês visualizado (gastos pendentes, centavos). */
+    val aPagarMes: StateFlow<Long> =
         combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
             .flatMapLatest { (p, mes) ->
-                repository.observarPendentePeriodo(p, mes.atDay(1), mes.atEndOfMonth())
+                repository.observarPendentePorTipo(
+                    p, TipoTransacao.GASTO, mes.atDay(1), mes.atEndOfMonth()
+                )
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
+    /** A receber no mês visualizado (ganhos pendentes: salário, esperados). */
+    val aReceberMes: StateFlow<Long> =
+        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
+            .flatMapLatest { (p, mes) ->
+                repository.observarPendentePorTipo(
+                    p, TipoTransacao.GANHO, mes.atDay(1), mes.atEndOfMonth()
+                )
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
@@ -309,6 +321,13 @@ class HomeViewModel @Inject constructor(
                 )
             }
         }
+        // Desconto automático das passagens de ônibus (dias de rotina):
+        // roda ao abrir o app e na virada do dia, sem visitar a aba Ônibus
+        viewModelScope.launch {
+            fluxoDataAtual().collect {
+                runCatching { onibusManager.processarDescontosAutomaticos() }
+            }
+        }
         // Ao entrar (ou trocar de perfil/aba): garante categorias padrão
         // e lança transações recorrentes vencidas.
         viewModelScope.launch {
@@ -370,9 +389,14 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { repository.marcarTransacaoPaga(transacao, !transacao.pago) }
                 .onSuccess {
+                    val ehGanho = transacao.tipo == TipoTransacao.GANHO
                     _mensagens.emit(
-                        if (!transacao.pago) "Pagamento confirmado"
-                        else "Marcado como pendente"
+                        when {
+                            !transacao.pago && ehGanho -> "Recebimento confirmado"
+                            !transacao.pago -> "Pagamento confirmado"
+                            ehGanho -> "Marcado como a receber"
+                            else -> "Marcado como pendente"
+                        }
                     )
                 }
                 .onFailure { _mensagens.emit("Erro ao atualizar pagamento") }

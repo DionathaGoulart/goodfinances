@@ -168,19 +168,81 @@ interface TransacaoDao {
     fun observarSaldoTotal(perfil: Perfil): Flow<Long>
 
     /**
-     * Total PENDENTE (a pagar) do período, em centavos: gastos pendentes
-     * menos ganhos pendentes. É quanto ainda vai sair do saldo quando tudo
-     * do período for pago.
+     * Pendências do período de UM tipo, em centavos: GASTO = "a pagar"
+     * (fatura, contas fixas), GANHO = "a receber" (salário, valores
+     * esperados). A Home mostra as duas linhas separadas.
      */
     @Query(
         """
-        SELECT COALESCE(SUM(CASE WHEN tipo = 'GASTO' THEN valor ELSE -valor END), 0)
-        FROM Transacao
+        SELECT COALESCE(SUM(valor), 0) FROM Transacao
         WHERE perfil = :perfil AND deletado = 0 AND pago = 0
-            AND data BETWEEN :inicio AND :fim
+            AND tipo = :tipo AND data BETWEEN :inicio AND :fim
         """
     )
-    fun observarPendentePeriodo(perfil: Perfil, inicio: LocalDate, fim: LocalDate): Flow<Long>
+    fun observarPendentePorTipo(
+        perfil: Perfil,
+        tipo: TipoTransacao,
+        inicio: LocalDate,
+        fim: LocalDate
+    ): Flow<Long>
+
+    /**
+     * Total de uma compra parcelada: soma das parcelas vivas cuja descrição
+     * segue "base (i/N)". [padrao] já vem com % e _ escapados; irmãs sempre
+     * compartilham o mesmo [cartaoUuid] ("" = parcelado sem cartão).
+     */
+    @Query(
+        """
+        SELECT COALESCE(SUM(valor), 0) FROM Transacao
+        WHERE perfil = :perfil AND deletado = 0 AND cartaoUuid = :cartaoUuid
+            AND descricao LIKE :padrao ESCAPE '\'
+        """
+    )
+    suspend fun somarParcelasIrmas(perfil: Perfil, cartaoUuid: String, padrao: String): Long
+
+    /** Ocorrências futuras NÃO PAGAS de uma recorrência (edição in-place). */
+    @Query(
+        """
+        SELECT * FROM Transacao
+        WHERE recorrenciaUuid = :recorrenciaUuid AND deletado = 0 AND pago = 0
+            AND data >= :desde
+        """
+    )
+    suspend fun listarOcorrenciasPendentes(
+        recorrenciaUuid: String,
+        desde: LocalDate
+    ): List<Transacao>
+
+    /**
+     * Auto-recebimento do GANHO mensal: confirma a ocorrência do dia UMA vez
+     * (o filtro pago = 0 + o avanço do cursor garantem que desmarcar depois
+     * não seja re-marcado).
+     */
+    @Query(
+        """
+        UPDATE Transacao SET pago = 1, atualizadoEm = :agora
+        WHERE recorrenciaUuid = :recorrenciaUuid AND data = :data
+            AND pago = 0 AND deletado = 0
+        """
+    )
+    suspend fun confirmarOcorrencia(recorrenciaUuid: String, data: LocalDate, agora: Long)
+
+    /**
+     * Tombstona ocorrências não pagas com data após [aposDe] (encerrar a
+     * recorrência / reduzir o "dura até"). Pagas nunca são tocadas.
+     */
+    @Query(
+        """
+        UPDATE Transacao SET deletado = 1, atualizadoEm = :agora
+        WHERE recorrenciaUuid = :recorrenciaUuid AND deletado = 0 AND pago = 0
+            AND data > :aposDe
+        """
+    )
+    suspend fun tombstonarOcorrenciasApos(
+        recorrenciaUuid: String,
+        aposDe: LocalDate,
+        agora: Long
+    )
 
     /** Marca um lote como pago/pendente (pagar fatura marca o grupo inteiro). */
     @Query(

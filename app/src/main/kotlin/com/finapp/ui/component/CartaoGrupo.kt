@@ -68,7 +68,11 @@ fun agruparPorCartao(
                 nome = cartao?.nome ?: "Cartão",
                 cor = cartao?.cor ?: "#8B5CF6",
                 total = itens.sumOf { it.valor },
-                transacoes = itens
+                // Ordem de compra: mais antiga primeiro, mais nova por último
+                // (parcelas do mês empatam no vencimento; dataCompra decide)
+                transacoes = itens.sortedWith(
+                    compareBy({ it.dataCompra ?: it.data }, { it.id })
+                )
             )
         }
         .sortedBy { it.nome }

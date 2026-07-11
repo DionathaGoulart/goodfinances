@@ -29,6 +29,12 @@ data class Cartao(
     /** Cor em hex, ex: "#8B5CF6". */
     val cor: String = "#8B5CF6",
     val perfil: Perfil,
+    /**
+     * Uuid do cartão pessoal de origem quando esta linha é o espelho dele na
+     * Casa ("" = cartão nativo do balde). Cartões pessoais aparecem também na
+     * Casa via espelho one-way (original → espelho); o espelho é read-only.
+     */
+    val origemUuid: String = "",
     /** Última modificação (epoch millis) — resolução de conflitos no sync. */
     val atualizadoEm: Long = System.currentTimeMillis(),
     /** Tombstone para o sync. */

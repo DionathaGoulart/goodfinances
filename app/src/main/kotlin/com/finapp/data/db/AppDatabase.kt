@@ -23,7 +23,7 @@ import com.finapp.data.db.entities.TransacaoRecorrente
         Meta::class,
         ContaAgendada::class
     ],
-    version = 13,
+    version = 15,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -386,6 +386,47 @@ abstract class AppDatabase : RoomDatabase() {
                     "UPDATE TransacaoRecorrente SET diaMensal = " +
                         "CAST(strftime('%d', proximoLancamento * 86400, 'unixepoch') AS INTEGER) " +
                         "WHERE frequencia = 'MENSAL'"
+                )
+            }
+        }
+
+        /**
+         * v13 -> v14: Cartao ganha origemUuid (uuid do cartão pessoal de
+         * origem quando a linha é o espelho dele na Casa; "" = nativo).
+         */
+        val MIGRACAO_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE Cartao ADD COLUMN origemUuid TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
+        /**
+         * v14 -> v15: recorrências materializadas meses à frente.
+         * Transacao.recorrenciaUuid vincula ocorrência -> recorrência (edição/
+         * encerramento propagam só nas não pagas); TransacaoRecorrente ganha
+         * terminaEm ("dura até", epoch day, nullable) e proximaConfirmacao
+         * (auto-recebimento do GANHO mensal, nullable — backfill com o cursor
+         * atual para o salário existente não pular os meses materializados).
+         */
+        val MIGRACAO_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE Transacao ADD COLUMN recorrenciaUuid TEXT NOT NULL DEFAULT ''"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_Transacao_recorrenciaUuid " +
+                        "ON Transacao (recorrenciaUuid)"
+                )
+                db.execSQL("ALTER TABLE TransacaoRecorrente ADD COLUMN terminaEm INTEGER")
+                db.execSQL(
+                    "ALTER TABLE TransacaoRecorrente ADD COLUMN proximaConfirmacao INTEGER"
+                )
+                db.execSQL(
+                    "UPDATE TransacaoRecorrente SET proximaConfirmacao = proximoLancamento " +
+                        "WHERE frequencia = 'MENSAL' AND tipo = 'GANHO' " +
+                        "AND ativa = 1 AND deletado = 0"
                 )
             }
         }

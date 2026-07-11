@@ -85,7 +85,8 @@ class TransacaoViewModel @Inject constructor(
         notaFiscal: String = "",
         parcelas: Int = 1,
         lancarProLaborePessoal: Boolean = false,
-        cartao: Cartao? = null
+        cartao: Cartao? = null,
+        aReceber: Boolean = false
     ) {
         if (valorCentavos <= 0L) {
             emitir("Informe um valor maior que zero")
@@ -130,9 +131,14 @@ class TransacaoViewModel @Inject constructor(
                             notaFiscal = if (indice == 0) notaFiscal else "",
                             cartaoUuid = cartao?.uuid.orEmpty(),
                             dataCompra = if (cartao != null) data else null,
-                            // Crédito: pendente até pagar a fatura. Parcelas
-                            // futuras sem cartão também aguardam pagamento.
-                            pago = cartao == null && indice == 0
+                            // Ganho esperado ([aReceber]) fica pendente até
+                            // confirmar. Crédito: pendente até pagar a fatura;
+                            // parcelas futuras sem cartão também aguardam.
+                            pago = if (tipo == TipoTransacao.GANHO) {
+                                !aReceber
+                            } else {
+                                cartao == null && indice == 0
+                            }
                         )
                     )
                 }
@@ -172,6 +178,7 @@ class TransacaoViewModel @Inject constructor(
                             lancarProLaborePessoal ->
                                 "Gasto lançado e pró-labore adicionado no Pessoal"
                             repetirMensalmente -> "Transação adicionada (repete todo mês)"
+                            aReceber -> "Anotado como a receber — confirme quando entrar"
                             else -> "Transação adicionada"
                         }
                     )
@@ -248,6 +255,23 @@ class TransacaoViewModel @Inject constructor(
     /** Vencimento previsto da fatura de uma compra no crédito (prévia no modal). */
     fun previsaoVencimento(cartao: Cartao, dataCompra: LocalDate): LocalDate =
         repository.vencimentoFatura(cartao, dataCompra)
+
+    /**
+     * Contexto de uma parcela "base (i/N)": (parcela, total, valor TOTAL da
+     * compra — soma das N parcelas). Null = a transação não é uma parcela.
+     * Informativo na edição, "pra ter uma ideia" do todo.
+     */
+    suspend fun infoCompraParcelada(transacao: Transacao): Triple<Int, Int, Long>? {
+        val casamento = REGEX_PARCELA.find(transacao.descricao) ?: return null
+        val (base, indice, total) = casamento.destructured
+        val valorTotal = repository.somarCompraParcelada(
+            perfil = transacao.perfil,
+            cartaoUuid = transacao.cartaoUuid,
+            descricaoBase = base,
+            totalParcelas = total.toInt()
+        )
+        return Triple(indice.toInt(), total.toInt(), valorTotal)
+    }
 
     /**
      * Categoria mais usada em lançamentos com descrição parecida — alimenta
@@ -366,5 +390,10 @@ class TransacaoViewModel @Inject constructor(
 
     private fun emitir(mensagem: String) {
         viewModelScope.launch { _mensagens.emit(mensagem) }
+    }
+
+    private companion object {
+        /** Descrição de parcela gerada pelo parcelamento: "base (i/N)". */
+        val REGEX_PARCELA = Regex("""^(.*) \((\d+)/(\d+)\)$""")
     }
 }
