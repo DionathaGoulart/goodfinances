@@ -406,60 +406,6 @@ class ConfigViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Gasto fixo mensal (internet, aluguel...) criado direto na Config: vira
-     * recorrência mensal de GASTO que entra como pendência no início de cada
-     * mês com data no [diaVencimento] — "a pagar" até o usuário dar baixa.
-     */
-    fun adicionarGastoFrequente(
-        descricao: String,
-        valorCentavos: Long,
-        categoria: String,
-        diaVencimento: Int,
-        terminaEm: LocalDate? = null
-    ) {
-        val descricaoLimpa = descricao.trim()
-        if (descricaoLimpa.isEmpty()) {
-            emitir("Informe a descrição do gasto")
-            return
-        }
-        if (valorCentavos <= 0L) {
-            emitir("Informe um valor maior que zero")
-            return
-        }
-        if (categoria.isBlank()) {
-            emitir("Escolha uma categoria")
-            return
-        }
-        if (diaVencimento !in 1..31) {
-            emitir("Dia de vencimento deve estar entre 1 e 31")
-            return
-        }
-        if (terminaEm != null && YearMonth.from(terminaEm) < YearMonth.now()) {
-            emitir("\"Dura até\" não pode ser um mês passado")
-            return
-        }
-        viewModelScope.launch {
-            runCatching {
-                repository.inserirRecorrente(
-                    TransacaoRecorrente(
-                        valor = valorCentavos,
-                        tipo = TipoTransacao.GASTO,
-                        categoria = categoria,
-                        descricao = descricaoLimpa,
-                        frequencia = Frequencia.MENSAL,
-                        proximoLancamento = proximoLancamentoMensal(diaVencimento),
-                        diaMensal = diaVencimento,
-                        perfil = perfilDados.value,
-                        terminaEm = terminaEm
-                    )
-                )
-            }
-                .onSuccess { emitir("Gasto frequente criado — entra no \"a pagar\" todo mês") }
-                .onFailure { emitir("Erro ao criar gasto frequente") }
-        }
-    }
-
     // ---------- Cartões de crédito ----------
 
     private fun diasValidos(fechamento: Int, vencimento: Int): Boolean =

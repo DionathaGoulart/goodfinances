@@ -68,12 +68,15 @@ class TransacaoViewModel @Inject constructor(
 
     /**
      * [valorCentavos] em centavos e é o valor TOTAL da compra. Se
-     * [repetirMensalmente], cria também uma recorrência mensal a partir do
-     * mês seguinte. [parcelas] > 1 divide o total em lançamentos mensais
-     * iguais (o resto da divisão vai na primeira parcela); a nota fiscal
-     * fica só na primeira. [lancarProLaborePessoal] (modo misto, aba
-     * Empresa): espelha o gasto como ganho no balde Pessoal — o pró-labore
-     * do dono.
+     * [repetirMensalmente], vira uma recorrência mensal: GASTO é o "gasto
+     * frequente" — a recorrência começa na própria [data] e TODA ocorrência
+     * (inclusive a primeira) nasce como pendência "a pagar" no dia do
+     * vencimento, até [repetirAte] ("dura até"; null = sem fim); GANHO entra
+     * hoje e repete a partir do mês seguinte. [parcelas] > 1 divide o total
+     * em lançamentos mensais iguais (o resto da divisão vai na primeira
+     * parcela); a nota fiscal fica só na primeira. [lancarProLaborePessoal]
+     * (modo misto, aba Empresa): espelha o gasto como ganho no balde
+     * Pessoal — o pró-labore do dono.
      */
     fun adicionarTransacao(
         valorCentavos: Long,
@@ -82,6 +85,7 @@ class TransacaoViewModel @Inject constructor(
         descricao: String,
         data: LocalDate,
         repetirMensalmente: Boolean = false,
+        repetirAte: LocalDate? = null,
         notaFiscal: String = "",
         parcelas: Int = 1,
         lancarProLaborePessoal: Boolean = false,
@@ -98,6 +102,49 @@ class TransacaoViewModel @Inject constructor(
             val autor = usuario?.nome.orEmpty()
             val autorUid = usuario?.uid.orEmpty()
             val totalParcelas = parcelas.coerceIn(1, 24)
+            // GASTO repetido = gasto frequente: quem lança as ocorrências
+            // (inclusive a deste mês, como "a pagar") é a recorrência — a
+            // transação avulsa não é inserida, senão duplicaria o mês.
+            val ehGastoFrequente = repetirMensalmente &&
+                tipo == TipoTransacao.GASTO &&
+                totalParcelas == 1 &&
+                cartao == null
+            if (ehGastoFrequente) {
+                runCatching {
+                    val recorrente = TransacaoRecorrente(
+                        valor = valorCentavos,
+                        tipo = tipo,
+                        categoria = categoria,
+                        descricao = descricao.trim(),
+                        frequencia = Frequencia.MENSAL,
+                        proximoLancamento = data,
+                        diaMensal = data.dayOfMonth,
+                        perfil = perfil.value,
+                        terminaEm = repetirAte
+                    )
+                    repository.inserirRecorrente(recorrente)
+                    // Materializa já: a pendência deste mês aparece na hora
+                    repository.processarRecorrentesVencidas(
+                        autorCasa = autor,
+                        autorCasaUid = autorUid
+                    )
+                    // A nota fiscal anexada no modal fica na 1ª ocorrência
+                    if (notaFiscal.isNotBlank()) {
+                        repository.obterTransacaoPorUuid(
+                            FinanceRepository.uuidOcorrenciaRecorrente(recorrente.uuid, data)
+                        )?.let { ocorrencia ->
+                            repository.atualizarTransacao(
+                                ocorrencia.copy(notaFiscal = notaFiscal)
+                            )
+                        }
+                    }
+                }
+                    .onSuccess {
+                        emitir("Gasto frequente criado — entra no \"a pagar\" todo mês")
+                    }
+                    .onFailure { emitir("Erro ao criar gasto frequente") }
+                return@launch
+            }
             // O usuário digita o TOTAL; cada parcela leva total/n e o resto
             // da divisão inteira vai na primeira (a soma bate com o total).
             val valorParcela = valorCentavos / totalParcelas
@@ -142,6 +189,7 @@ class TransacaoViewModel @Inject constructor(
                         )
                     )
                 }
+                // Só GANHO chega aqui repetindo (GASTO virou gasto frequente acima)
                 if (repetirMensalmente && totalParcelas == 1 && cartao == null) {
                     repository.inserirRecorrente(
                         TransacaoRecorrente(
@@ -154,7 +202,8 @@ class TransacaoViewModel @Inject constructor(
                             // Dia da transação original: plusMonths pode ter
                             // truncado (31/01 -> 28/02) e perderia a intenção
                             diaMensal = data.dayOfMonth,
-                            perfil = perfil.value
+                            perfil = perfil.value,
+                            terminaEm = repetirAte
                         )
                     )
                 }
