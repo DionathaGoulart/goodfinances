@@ -3,6 +3,7 @@ package com.finapp.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.finapp.data.PerfilManager
+import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoEmpresa
 import com.finapp.data.db.entities.TipoTransacao
@@ -14,6 +15,7 @@ import com.finapp.utils.PeriodoFiltro
 import com.finapp.utils.fluxoDataAtual
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -32,13 +34,16 @@ import javax.inject.Inject
 /**
  * Fatia do gráfico de pizza: categoria (ou cartão), total em centavos e cor.
  * [cartaoUuid] preenchido = fatia que agrupa as compras no crédito daquele
- * cartão (débito/dinheiro seguem separados por categoria).
+ * cartão (débito/dinheiro seguem separados por categoria). [cartaoUuids]
+ * carrega TODOS os uuids que somaram na fatia (com contextos combinados, o
+ * espelho da Casa tem uuid próprio, diferente do cartão pessoal original).
  */
 data class FatiaPizza(
     val nome: String,
     val valor: Long,
     val cor: String,
-    val cartaoUuid: String = ""
+    val cartaoUuid: String = "",
+    val cartaoUuids: Set<String> = emptySet()
 )
 
 /** Ganhos e gastos consolidados de um mês, em centavos (gráficos de linha e barras). */
@@ -92,12 +97,66 @@ data class Insight(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AnaliseViewModel @Inject constructor(
-    repository: FinanceRepository,
+    private val repository: FinanceRepository,
     perfilManager: PerfilManager
 ) : ViewModel() {
 
-    /** Balde de dados efetivo (no MEI, acompanha a aba Pessoal/Negócio). */
-    val perfil: StateFlow<Perfil> = perfilManager.perfilDados
+    /** Contextos que o usuário pode combinar (Pessoal / Empresa / Casa). */
+    val contextos: StateFlow<List<Perfil>> = perfilManager.contextosDisponiveis
+
+    /**
+     * Seleção explícita de contextos. Vazia = seguir o contexto ativo da
+     * Home (comportamento padrão); ao tocar nos chips o usuário combina
+     * dois ou todos os contextos num gráfico só.
+     */
+    private val _selecaoContextos = MutableStateFlow<Set<Perfil>>(emptySet())
+
+    /** Baldes efetivos dos gráficos (nunca vazio; ignora contexto que saiu do modo). */
+    val baldes: StateFlow<Set<Perfil>> =
+        combine(
+            _selecaoContextos,
+            perfilManager.perfilDados,
+            perfilManager.contextosDisponiveis
+        ) { selecao, ativo, disponiveis ->
+            val valida = selecao.filterTo(mutableSetOf()) { it in disponiveis }
+            valida.ifEmpty { setOf(ativo) }
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            setOf(perfilManager.perfilDados.value)
+        )
+
+    /** Liga/desliga um contexto nos gráficos (sempre sobra pelo menos um). */
+    fun alternarContexto(contexto: Perfil) {
+        val atual = baldes.value
+        _selecaoContextos.value = if (contexto in atual) {
+            val nova = atual - contexto
+            if (nova.isEmpty()) return
+            nova
+        } else {
+            atual + contexto
+        }
+    }
+
+    /** Junta o mesmo flow de lista de cada balde selecionado num só. */
+    private fun <T> mesclar(
+        baldes: Set<Perfil>,
+        porBalde: (Perfil) -> Flow<List<T>>
+    ): Flow<List<T>> =
+        combine(baldes.map(porBalde)) { listas -> listas.toList().flatten() }
+
+    /**
+     * Chave canônica de um cartão: o espelho da Casa conta como o cartão
+     * pessoal original — juntando Pessoal + Casa, o mesmo cartão não vira
+     * duas fatias/faturas.
+     */
+    private fun canonicoCartao(cartoes: List<Cartao>, uuid: String): String =
+        cartoes.firstOrNull { it.uuid == uuid }?.origemUuid?.takeIf { it.isNotBlank() }
+            ?: uuid
+
+    private fun cartaoPorCanonico(cartoes: List<Cartao>, uuid: String): Cartao? =
+        cartoes.firstOrNull { it.uuid == uuid }
+            ?: cartoes.firstOrNull { it.origemUuid == uuid }
 
     private val _filtro = MutableStateFlow(PeriodoFiltro.MES)
     val filtro: StateFlow<PeriodoFiltro> = _filtro.asStateFlow()
@@ -128,17 +187,18 @@ class AnaliseViewModel @Inject constructor(
      * separação das listas). Transferências entre baldes ficam de fora.
      */
     val somasPorCategoria: StateFlow<List<FatiaPizza>> =
-        combine(perfil, intervalo, _tipoCategoria) { p, i, t -> Triple(p, i, t) }
-            .flatMapLatest { (p, i, t) ->
+        combine(baldes, intervalo, _tipoCategoria) { b, i, t -> Triple(b, i, t) }
+            .flatMapLatest { (b, i, t) ->
                 combine(
-                    repository.observarTransacoesPeriodo(p, i.inicio, i.fim),
-                    repository.observarCategorias(p),
-                    repository.observarCartoes(p)
+                    mesclar(b) { repository.observarTransacoesPeriodo(it, i.inicio, i.fim) },
+                    mesclar(b) { repository.observarCategorias(it) },
+                    mesclar(b) { repository.observarCartoes(it) }
                 ) { transacoes, categorias, cartoes ->
                     val doTipo = transacoes.filter {
                         it.tipo == t && it.categoria != FinanceRepository.NOME_TRANSFERENCIA
                     }
                     val (noCartao, avulsas) = doTipo.partition { it.cartaoUuid.isNotBlank() }
+                    // Categorias homônimas dos contextos somam numa fatia só
                     val fatiasCategoria = avulsas
                         .groupBy { it.categoria }
                         .map { (nome, itens) ->
@@ -150,14 +210,15 @@ class AnaliseViewModel @Inject constructor(
                             )
                         }
                     val fatiasCartao = noCartao
-                        .groupBy { it.cartaoUuid }
+                        .groupBy { canonicoCartao(cartoes, it.cartaoUuid) }
                         .map { (uuid, itens) ->
-                            val cartao = cartoes.firstOrNull { it.uuid == uuid }
+                            val cartao = cartaoPorCanonico(cartoes, uuid)
                             FatiaPizza(
                                 nome = cartao?.nome ?: "Cartão",
                                 valor = itens.sumOf { it.valor },
                                 cor = cartao?.cor ?: "#8B5CF6",
-                                cartaoUuid = uuid
+                                cartaoUuid = uuid,
+                                cartaoUuids = itens.mapTo(mutableSetOf()) { it.cartaoUuid }
                             )
                         }
                     (fatiasCategoria + fatiasCartao).sortedByDescending { it.valor }
@@ -171,11 +232,11 @@ class AnaliseViewModel @Inject constructor(
 
     /** Últimos 6 meses consolidados — gráficos de linha e barras. */
     val seriesMensais: StateFlow<List<ValorMensal>> =
-        combine(perfil, dataAtual) { p, hoje -> p to hoje }
-            .flatMapLatest { (p, hoje) ->
+        combine(baldes, dataAtual) { b, hoje -> b to hoje }
+            .flatMapLatest { (b, hoje) ->
                 val inicio = hoje.minusMonths(5).withDayOfMonth(1)
                 val fim = hoje.with(TemporalAdjusters.lastDayOfMonth())
-                repository.observarTransacoesPeriodo(p, inicio, fim)
+                mesclar(b) { repository.observarTransacoesPeriodo(it, inicio, fim) }
                     .map { transacoes -> consolidarPorMes(transacoes, YearMonth.from(hoje)) }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -186,9 +247,9 @@ class AnaliseViewModel @Inject constructor(
      * dos cards.
      */
     val transacoesDoPeriodo: StateFlow<List<Transacao>> =
-        combine(perfil, intervalo) { p, i -> p to i }
-            .flatMapLatest { (p, i) ->
-                repository.observarTransacoesPeriodo(p, i.inicio, i.fim)
+        combine(baldes, intervalo) { b, i -> b to i }
+            .flatMapLatest { (b, i) ->
+                mesclar(b) { repository.observarTransacoesPeriodo(it, i.inicio, i.fim) }
                     .map { lista ->
                         lista.filter { it.categoria != FinanceRepository.NOME_TRANSFERENCIA }
                     }
@@ -205,21 +266,23 @@ class AnaliseViewModel @Inject constructor(
     /** Tipo da empresa (MEI/CNPJ) — muda o conteúdo do painel fiscal. */
     val tipoEmpresa: StateFlow<TipoEmpresa?> = perfilManager.tipoEmpresa
 
-    /** Painel fiscal: só nos contextos de empresa (null nos demais). */
+    /** Painel fiscal: só quando um contexto de empresa está selecionado. */
     val painelFiscal: StateFlow<PainelFiscal?> =
-        combine(perfil, dataAtual) { p, hoje -> p to hoje }
-            .flatMapLatest { (p, hoje) ->
-                if (!p.ehEmpresa) {
+        combine(baldes, dataAtual) { b, hoje ->
+            b.firstOrNull { it.ehEmpresa } to hoje
+        }
+            .flatMapLatest { (empresa, hoje) ->
+                if (empresa == null) {
                     flowOf(null)
                 } else {
                     combine(
                         repository.observarGanhos(
-                            p,
+                            empresa,
                             hoje.withDayOfYear(1),
                             hoje.with(TemporalAdjusters.lastDayOfYear())
                         ),
                         repository.observarGanhos(
-                            p,
+                            empresa,
                             hoje.withDayOfMonth(1),
                             hoje.with(TemporalAdjusters.lastDayOfMonth())
                         )
@@ -228,33 +291,44 @@ class AnaliseViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** Categorias de gasto com orçamento definido vs o gasto do mês corrente. */
+    /**
+     * Categorias de gasto com orçamento definido vs o gasto do mês corrente.
+     * Cada contexto selecionado contribui com os próprios orçamentos (o teto
+     * de "Mercado" do Pessoal é independente do da Casa).
+     */
     val orcamentos: StateFlow<List<OrcamentoCategoria>> =
-        combine(perfil, dataAtual) { p, hoje -> p to hoje }
-            .flatMapLatest { (p, hoje) ->
-                combine(
-                    repository.observarGastosPorCategoria(
-                        p,
-                        hoje.withDayOfMonth(1),
-                        hoje.with(TemporalAdjusters.lastDayOfMonth())
-                    ),
-                    repository.observarCategorias(p)
-                ) { somas, categorias ->
-                    categorias
-                        .filter { it.tipo == TipoTransacao.GASTO && it.orcamentoMensal > 0 }
-                        .map { categoria ->
-                            OrcamentoCategoria(
-                                nome = categoria.nome,
-                                cor = categoria.cor,
-                                gastoMes = somas
-                                    .firstOrNull { it.categoria == categoria.nome }
-                                    ?.total ?: 0L,
-                                orcamento = categoria.orcamentoMensal
-                            )
-                        }
+        combine(baldes, dataAtual) { b, hoje -> b to hoje }
+            .flatMapLatest { (b, hoje) ->
+                val inicio = hoje.withDayOfMonth(1)
+                val fim = hoje.with(TemporalAdjusters.lastDayOfMonth())
+                combine(b.map { balde -> orcamentosDoBalde(balde, inicio, fim) }) { listas ->
+                    listas.toList().flatten()
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private fun orcamentosDoBalde(
+        balde: Perfil,
+        inicio: LocalDate,
+        fim: LocalDate
+    ): Flow<List<OrcamentoCategoria>> =
+        combine(
+            repository.observarGastosPorCategoria(balde, inicio, fim),
+            repository.observarCategorias(balde)
+        ) { somas, categorias ->
+            categorias
+                .filter { it.tipo == TipoTransacao.GASTO && it.orcamentoMensal > 0 }
+                .map { categoria ->
+                    OrcamentoCategoria(
+                        nome = categoria.nome,
+                        cor = categoria.cor,
+                        gastoMes = somas
+                            .firstOrNull { it.categoria == categoria.nome }
+                            ?.total ?: 0L,
+                        orcamento = categoria.orcamentoMensal
+                    )
+                }
+        }
 
     /**
      * Insights proativos: compara os gastos por categoria do mês atual com o
@@ -262,12 +336,12 @@ class AnaliseViewModel @Inject constructor(
      * período (sempre mês vs mês anterior).
      */
     val insights: StateFlow<List<Insight>> =
-        combine(perfil, dataAtual) { p, hoje -> p to hoje }
-            .flatMapLatest { (p, hoje) ->
+        combine(baldes, dataAtual) { b, hoje -> b to hoje }
+            .flatMapLatest { (b, hoje) ->
                 val mesAtual = YearMonth.from(hoje)
                 val inicio = mesAtual.minusMonths(1).atDay(1)
                 val fim = mesAtual.atEndOfMonth()
-                repository.observarTransacoesPeriodo(p, inicio, fim)
+                mesclar(b) { repository.observarTransacoesPeriodo(it, inicio, fim) }
                     .map { transacoes -> calcularInsights(transacoes, mesAtual) }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -279,22 +353,21 @@ class AnaliseViewModel @Inject constructor(
      * fatura já paga sai da lista — o corte é o `pago`, não o mês.
      */
     val faturas: StateFlow<List<Fatura>> =
-        perfil
-            .flatMapLatest { p ->
+        baldes
+            .flatMapLatest { b ->
                 combine(
-                    repository.observarTransacoes(p),
-                    repository.observarCartoes(p)
+                    mesclar(b) { repository.observarTransacoes(it) },
+                    mesclar(b) { repository.observarCartoes(it) }
                 ) { transacoes, cartoes ->
-                    val corPorUuid = cartoes.associate { it.uuid to (it.nome to it.cor) }
                     transacoes
                         .filter { it.cartaoUuid.isNotBlank() && !it.pago }
-                        .groupBy { it.cartaoUuid to it.data }
+                        .groupBy { canonicoCartao(cartoes, it.cartaoUuid) to it.data }
                         .map { (chave, itens) ->
                             val (uuid, vencimento) = chave
-                            val info = corPorUuid[uuid]
+                            val cartao = cartaoPorCanonico(cartoes, uuid)
                             Fatura(
-                                cartaoNome = info?.first ?: "Cartão",
-                                cartaoCor = info?.second ?: "#8B5CF6",
+                                cartaoNome = cartao?.nome ?: "Cartão",
+                                cartaoCor = cartao?.cor ?: "#8B5CF6",
                                 vencimento = vencimento,
                                 total = itens.sumOf { it.valor },
                                 itens = itens.sortedByDescending { it.dataCompra ?: it.data }

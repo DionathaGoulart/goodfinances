@@ -45,6 +45,7 @@ import com.finapp.data.db.entities.Transacao
 import com.finapp.ui.theme.GreenPrimary
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
+import java.time.LocalDate
 
 /**
  * Linha de transação: ícone, descrição, categoria, valor e data.
@@ -147,15 +148,30 @@ fun TransacaoItem(
                         modifier = Modifier.size(14.dp)
                     )
                 }
-                // Pendente: tem data para pagar, ainda não desconta do saldo
+                // Pendente: tem data para pagar, ainda não desconta do saldo.
+                // Gasto cujo vencimento já passou vira "Atrasado" em vermelho.
                 if (!transacao.pago) {
+                    val atrasada = transacao.tipo == TipoTransacao.GASTO &&
+                        transacao.data.isBefore(LocalDate.now())
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
                         imageVector = Icons.Filled.Schedule,
-                        contentDescription = "Aguardando pagamento",
-                        tint = MaterialTheme.colorScheme.tertiary,
+                        contentDescription = if (atrasada) {
+                            "Pagamento atrasado"
+                        } else {
+                            "Aguardando pagamento"
+                        },
+                        tint = if (atrasada) RedExpense else MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.size(14.dp)
                     )
+                    if (atrasada) {
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = "Atrasado",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = RedExpense
+                        )
+                    }
                 }
                 // Compra no crédito: mostra o dia em que a compra foi feita
                 if (transacao.cartaoUuid.isNotBlank()) {

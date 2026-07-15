@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.TrendingDown
@@ -70,6 +71,7 @@ import com.finapp.viewmodel.OrcamentoCategoria
 import com.finapp.viewmodel.PainelFiscal
 import com.finapp.viewmodel.TipoInsight
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.TextStyle
 import kotlin.math.roundToInt
@@ -100,6 +102,8 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
     val transacoesPeriodo by viewModel.transacoesDoPeriodo.collectAsStateWithLifecycle()
     val insights by viewModel.insights.collectAsStateWithLifecycle()
     val faturas by viewModel.faturas.collectAsStateWithLifecycle()
+    val contextos by viewModel.contextos.collectAsStateWithLifecycle()
+    val baldes by viewModel.baldes.collectAsStateWithLifecycle()
 
     var rangePickerAberto by remember { mutableStateOf(false) }
     var detalheAberto by remember { mutableStateOf<DetalheEstatistica?>(null) }
@@ -122,6 +126,41 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
         )
 
         Spacer(modifier = Modifier.height(12.dp))
+
+        // ---------- Contextos combináveis (Pessoal / Empresa / Casa) ----------
+        // Toque liga/desliga cada contexto: dá para ver um só, dois juntos
+        // ou todos somados nos gráficos. Some quando só existe um contexto.
+        if (contextos.size > 1) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                contextos.forEach { contexto ->
+                    FilterChip(
+                        selected = contexto in baldes,
+                        onClick = { viewModel.alternarContexto(contexto) },
+                        label = { Text(contexto.rotulo) },
+                        leadingIcon = if (contexto in baldes) {
+                            {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
         // ---------- Filtro de período ----------
         Row(
@@ -772,10 +811,12 @@ private fun SecaoFaturas(faturas: List<Fatura>, onVerFatura: (Fatura) -> Unit) {
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
     Spacer(modifier = Modifier.height(8.dp))
+    val hoje = LocalDate.now()
     faturas.forEachIndexed { indice, fatura ->
         if (indice > 0) Spacer(modifier = Modifier.height(8.dp))
         val cor = runCatching { Color(fatura.cartaoCor.toColorInt()) }
             .getOrDefault(MaterialTheme.colorScheme.primary)
+        val atrasada = fatura.vencimento.isBefore(hoje)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -802,10 +843,12 @@ private fun SecaoFaturas(faturas: List<Fatura>, onVerFatura: (Fatura) -> Unit) {
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Vence ${Formatadores.dataCurta(fatura.vencimento)} · " +
+                        text = (if (atrasada) "ATRASADA — venceu " else "Vence ") +
+                            "${Formatadores.dataCurta(fatura.vencimento)} · " +
                             "${fatura.itens.size} ${if (fatura.itens.size == 1) "compra" else "compras"}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (atrasada) RedExpense
+                        else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Text(
@@ -840,7 +883,11 @@ private fun FaturaDetalheSheet(fatura: Fatura, onFechar: () -> Unit) {
         ) {
             TituloDetalhe(fatura.cartaoNome)
             LinhaValor(
-                nome = "Vence ${Formatadores.dataCurta(fatura.vencimento)}",
+                nome = if (fatura.vencimento.isBefore(LocalDate.now())) {
+                    "ATRASADA — venceu ${Formatadores.dataCurta(fatura.vencimento)}"
+                } else {
+                    "Vence ${Formatadores.dataCurta(fatura.vencimento)}"
+                },
                 valor = Formatadores.moeda(fatura.total),
                 corValor = RedExpense
             )
@@ -868,7 +915,10 @@ private fun CategoriaDetalheSheet(
         transacoes
             .filter { transacao ->
                 transacao.tipo == tipo && if (fatia.cartaoUuid.isNotBlank()) {
-                    transacao.cartaoUuid == fatia.cartaoUuid
+                    // Fatia de cartão soma o original + espelho da Casa —
+                    // o conjunto de uuids cobre os dois
+                    transacao.cartaoUuid == fatia.cartaoUuid ||
+                        transacao.cartaoUuid in fatia.cartaoUuids
                 } else {
                     transacao.cartaoUuid.isBlank() && transacao.categoria == fatia.nome
                 }

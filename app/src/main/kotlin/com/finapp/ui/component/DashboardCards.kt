@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -45,6 +46,7 @@ fun SaldoCard(
     rotulo: String = "SALDO TOTAL",
     aPagarMes: Long = 0L,
     aReceberMes: Long = 0L,
+    atrasado: Long = 0L,
     saldoAposPagar: Long = 0L,
     mostrarResumoMes: Boolean = true,
     rotuloMes: String = "Este mês"
@@ -77,7 +79,7 @@ fun SaldoCard(
             )
 
             // Faixa de resumo do mês, só quando há algo a mostrar
-            if (mostrarResumoMes || aPagarMes > 0L || aReceberMes > 0L) {
+            if (mostrarResumoMes || aPagarMes > 0L || aReceberMes > 0L || atrasado > 0L) {
                 Spacer(modifier = Modifier.height(16.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 Spacer(modifier = Modifier.height(12.dp))
@@ -135,9 +137,33 @@ fun SaldoCard(
                 }
             }
 
+            // Gastos com vencimento passado e ainda não pagos — em destaque
+            if (atrasado > 0L) {
+                if (mostrarResumoMes || aPagarMes > 0L) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = RedExpense,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.size(6.dp))
+                    Text(
+                        text = "Atrasado ${Formatadores.moeda(atrasado)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = RedExpense
+                    )
+                }
+            }
+
             // Ganhos pendentes do mês (salário a cair, valores esperados)
             if (aReceberMes > 0L) {
-                if (mostrarResumoMes || aPagarMes > 0L) {
+                if (mostrarResumoMes || aPagarMes > 0L || atrasado > 0L) {
                     Spacer(modifier = Modifier.height(10.dp))
                 }
                 Row(
