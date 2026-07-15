@@ -50,6 +50,9 @@ class FinanceRepository @Inject constructor(
 
     suspend fun inserirTransacao(transacao: Transacao): Long = transacaoDao.inserir(transacao)
 
+    suspend fun obterTransacaoPorUuid(uuid: String): Transacao? =
+        transacaoDao.obterPorUuid(uuid)
+
     suspend fun atualizarTransacao(transacao: Transacao) =
         transacaoDao.atualizar(transacao.copy(atualizadoEm = agora()))
 

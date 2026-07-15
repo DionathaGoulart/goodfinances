@@ -31,6 +31,18 @@ object Formatadores {
     fun dataAgrupamento(data: LocalDate): String =
         data.format(dataAgrupamento).uppercase(LOCALE_BR)
 
+    /**
+     * "MM/AAAA" -> último dia daquele mês (campos "dura até"); null se o
+     * texto não estiver no formato ou o mês for inválido.
+     */
+    fun parseMesAno(texto: String): LocalDate? {
+        val casamento = Regex("""^(\d{1,2})/(\d{4})$""").find(texto.trim()) ?: return null
+        val mes = casamento.groupValues[1].toIntOrNull() ?: return null
+        val ano = casamento.groupValues[2].toIntOrNull() ?: return null
+        if (mes !in 1..12) return null
+        return java.time.YearMonth.of(ano, mes).atEndOfMonth()
+    }
+
     /** Centavos -> valor compacto para rótulos de gráfico. Ex: 125000 (R$ 1.250) -> "1,3k" */
     fun moedaCompacta(centavos: Long): String {
         val reais = centavos / 100.0

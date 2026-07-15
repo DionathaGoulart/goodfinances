@@ -123,6 +123,13 @@ fun TransacaoModal(
         )
     }
     var repetirMensalmente by remember { mutableStateOf(false) }
+    // "Dura até" da repetição: já vem com 12 meses à frente (padrão do
+    // gasto frequente) — o usuário ajusta ou apaga para repetir sem fim
+    var repetirAteTexto by remember {
+        val padrao = java.time.YearMonth.now().plusMonths(12)
+        mutableStateOf("%02d/%04d".format(padrao.monthValue, padrao.year))
+    }
+    var erroRepetirAte by remember { mutableStateOf<String?>(null) }
     var parcelas by remember { mutableStateOf(1) }
     var proLabore by remember { mutableStateOf(false) }
     // Ganho esperado: ainda não entrou — nasce pendente ("a receber")
@@ -768,9 +775,41 @@ fun TransacaoModal(
                         onCheckedChange = null
                     )
                     Text(
-                        text = "Repetir todo mês (a partir do mês seguinte)",
+                        text = if (tipo == TipoTransacao.GASTO) {
+                            "Repetir todo mês (vira gasto frequente)"
+                        } else {
+                            "Repetir todo mês (a partir do mês seguinte)"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (repetirMensalmente) {
+                    if (tipo == TipoTransacao.GASTO) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Entra no \"a pagar\" todo dia ${data.dayOfMonth} até " +
+                                "você dar baixa — aviso perto do vencimento e se atrasar.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = repetirAteTexto,
+                        onValueChange = {
+                            repetirAteTexto = it.filter { c -> c.isDigit() || c == '/' }.take(7)
+                            erroRepetirAte = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Dura até (MM/AAAA)") },
+                        placeholder = { Text("Ex: 12/2026") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        isError = erroRepetirAte != null,
+                        supportingText = {
+                            Text(erroRepetirAte ?: "Padrão: 12 meses · vazio = repete sem fim")
+                        }
                     )
                 }
             }
@@ -805,12 +844,20 @@ fun TransacaoModal(
                         ?: categoriaOriginal?.takeIf {
                             edicao && it.equals(nomeDigitado, ignoreCase = true)
                         }
+                    // A repetição segue as mesmas regras do checkbox (só à vista)
+                    val vaiRepetir = !edicao && repetirMensalmente &&
+                        parcelas == 1 && !pagamentoCredito
+                    val repetirAte = Formatadores.parseMesAno(repetirAteTexto)
                     val usaCredito = !edicao && tipo == TipoTransacao.GASTO && pagamentoCredito
                     when {
                         valorCentavos <= 0L -> erroValor = "Informe um valor maior que zero"
                         categoriaFinal == null -> erroCategoria = "Escolha uma categoria da lista"
                         usaCredito && cartaoSelecionado == null ->
                             erroValor = "Cadastre um cartão para usar crédito"
+                        vaiRepetir && repetirAteTexto.isNotBlank() && repetirAte == null ->
+                            erroRepetirAte = "Use o formato MM/AAAA"
+                        vaiRepetir && repetirAte != null && repetirAte < LocalDate.now() ->
+                            erroRepetirAte = "Não pode ser um mês passado"
                         else -> {
                             if (edicao) {
                                 val original = transacaoParaEditar!!
@@ -849,7 +896,8 @@ fun TransacaoModal(
                                     categoria = categoriaFinal,
                                     descricao = descricao,
                                     data = data,
-                                    repetirMensalmente = repetirMensalmente,
+                                    repetirMensalmente = vaiRepetir,
+                                    repetirAte = if (vaiRepetir) repetirAte else null,
                                     notaFiscal = notaFiscal,
                                     parcelas = parcelas,
                                     lancarProLaborePessoal = proLabore,
