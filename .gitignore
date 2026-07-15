@@ -18,3 +18,4 @@ key.properties
 
 # Config do Firebase (contem ids do projeto)
 app/google-services.json
+/.kotlin/
