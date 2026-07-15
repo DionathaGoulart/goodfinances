@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.temporal.ChronoUnit
@@ -125,6 +126,15 @@ class AnaliseViewModel @Inject constructor(
             SharingStarted.Eagerly,
             setOf(perfilManager.perfilDados.value)
         )
+
+    init {
+        // Trocar a aba ativa na Home desfaz a combinação: a Análise volta a
+        // seguir o contexto da aba (senão a seleção antiga "vaza" — Pessoal
+        // continuaria somado nos gráficos ao entrar na Empresa)
+        viewModelScope.launch {
+            perfilManager.perfilDados.collect { _selecaoContextos.value = emptySet() }
+        }
+    }
 
     /** Liga/desliga um contexto nos gráficos (sempre sobra pelo menos um). */
     fun alternarContexto(contexto: Perfil) {

@@ -817,6 +817,32 @@ fun TransacaoModal(
             Spacer(modifier = Modifier.height(16.dp))
 
             // ---------- Ações ----------
+            // Pendência ("a pagar"/"a receber"): dar baixa é a ação mais
+            // comum — botão em destaque, sem precisar do menu de segurar
+            if (edicao && transacaoParaEditar?.pago == false) {
+                Button(
+                    onClick = {
+                        viewModel.alternarPago(transacaoParaEditar)
+                        fecharDescartando()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = GreenPrimary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text(
+                        if (transacaoParaEditar.tipo == TipoTransacao.GANHO) {
+                            "MARCAR COMO RECEBIDO"
+                        } else {
+                            "MARCAR COMO PAGO"
+                        }
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
             if (edicao) {
                 OutlinedButton(
                     onClick = {

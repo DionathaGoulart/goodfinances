@@ -110,6 +110,19 @@ class TransacaoViewModel @Inject constructor(
                 totalParcelas == 1 &&
                 cartao == null
             if (ehGastoFrequente) {
+                // Mesmo nome já ativo = seria tudo em dobro nos meses seguintes
+                val repetida = descricao.trim().isNotBlank() &&
+                    repository.listarRecorrentesAtivas(perfil.value).any {
+                        it.tipo == TipoTransacao.GASTO &&
+                            it.descricao.equals(descricao.trim(), ignoreCase = true)
+                    }
+                if (repetida) {
+                    emitir(
+                        "Já existe o gasto frequente \"${descricao.trim()}\" — " +
+                            "edite ou encerre em Config › Gastos frequentes"
+                    )
+                    return@launch
+                }
                 runCatching {
                     val recorrente = TransacaoRecorrente(
                         valor = valorCentavos,
@@ -300,6 +313,30 @@ class TransacaoViewModel @Inject constructor(
 
     private fun juntar(base: String, detalhe: String): String =
         if (detalhe.isBlank()) base else "$base — $detalhe"
+
+    /** Dá baixa na pendência (ou reverte) — aí sim conta no saldo. */
+    fun alternarPago(transacao: Transacao) {
+        val usuario = casaManager.usuario.value
+        if (!transacao.podeSerEditadaPor(uid = usuario?.uid, nomeUsuario = usuario?.nome)) {
+            emitir("Só quem lançou pode dar baixa nesta transação")
+            return
+        }
+        viewModelScope.launch {
+            runCatching { repository.marcarTransacaoPaga(transacao, !transacao.pago) }
+                .onSuccess {
+                    val ehGanho = transacao.tipo == TipoTransacao.GANHO
+                    emitir(
+                        when {
+                            transacao.pago && ehGanho -> "Marcado como a receber"
+                            transacao.pago -> "Marcado como pendente"
+                            ehGanho -> "Recebido!"
+                            else -> "Pago! Descontado do saldo"
+                        }
+                    )
+                }
+                .onFailure { emitir("Erro ao atualizar a pendência") }
+        }
+    }
 
     /** Vencimento previsto da fatura de uma compra no crédito (prévia no modal). */
     fun previsaoVencimento(cartao: Cartao, dataCompra: LocalDate): LocalDate =
