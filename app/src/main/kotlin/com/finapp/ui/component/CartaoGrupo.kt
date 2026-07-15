@@ -35,7 +35,9 @@ import androidx.core.graphics.toColorInt
 import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Transacao
 import com.finapp.ui.theme.GreenPrimary
+import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
+import java.time.LocalDate
 
 /** Gastos de um cartão agrupados numa lista (nome, cor, total e itens). */
 data class GrupoCartao(
@@ -47,6 +49,10 @@ data class GrupoCartao(
 ) {
     /** Quanto da fatura ainda está pendente (0 = fatura paga). */
     val pendente: Long get() = transacoes.filter { !it.pago }.sumOf { it.valor }
+
+    /** True quando há pendência cujo vencimento já passou (fatura atrasada). */
+    fun atrasado(hoje: LocalDate): Boolean =
+        transacoes.any { !it.pago && it.data.isBefore(hoje) }
 }
 
 /**
@@ -159,6 +165,8 @@ fun CartaoGrupoCard(
         }
         // Fatura em aberto não desconta do saldo — o botão confirma o pagamento
         if (grupo.pendente > 0L && onPagarFatura != null) {
+            // Passou do vencimento sem pagar: a fatura fica marcada como atrasada
+            val atrasada = grupo.atrasado(LocalDate.now())
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -166,9 +174,17 @@ fun CartaoGrupoCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Em aberto: ${Formatadores.moeda(grupo.pendente)}",
+                    text = if (atrasada) {
+                        "Atrasada: ${Formatadores.moeda(grupo.pendente)}"
+                    } else {
+                        "Em aberto: ${Formatadores.moeda(grupo.pendente)}"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (atrasada) {
+                        RedExpense
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(onClick = onPagarFatura) {

@@ -118,6 +118,12 @@ class HomeViewModel @Inject constructor(
         .flatMapLatest { repository.observarSaldoTotal(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
+    /** Gastos atrasados (pendência com vencimento passado, qualquer mês). */
+    val atrasado: StateFlow<Long> =
+        combine(perfilDados, dataAtual) { p, hoje -> p to hoje }
+            .flatMapLatest { (p, hoje) -> repository.observarAtrasado(p, hoje) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
     /** A pagar no mês visualizado (gastos pendentes, centavos). */
     val aPagarMes: StateFlow<Long> =
         combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }

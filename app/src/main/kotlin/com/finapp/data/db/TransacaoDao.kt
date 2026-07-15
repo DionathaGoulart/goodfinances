@@ -187,6 +187,33 @@ interface TransacaoDao {
     ): Flow<Long>
 
     /**
+     * Gastos atrasados em centavos: pendências de GASTO cuja data de
+     * vencimento já passou (fatura vencida, conta fixa não paga).
+     */
+    @Query(
+        """
+        SELECT COALESCE(SUM(valor), 0) FROM Transacao
+        WHERE perfil = :perfil AND deletado = 0 AND pago = 0
+            AND tipo = 'GASTO' AND data < :hoje
+        """
+    )
+    fun observarAtrasado(perfil: Perfil, hoje: LocalDate): Flow<Long>
+
+    /**
+     * Pendências de GASTO que vencem até [ate] (inclui as já atrasadas) —
+     * base dos lembretes de vencimento das notificações.
+     */
+    @Query(
+        """
+        SELECT * FROM Transacao
+        WHERE perfil = :perfil AND deletado = 0 AND pago = 0
+            AND tipo = 'GASTO' AND data <= :ate
+        ORDER BY data
+        """
+    )
+    suspend fun listarGastosPendentesAte(perfil: Perfil, ate: LocalDate): List<Transacao>
+
+    /**
      * Total de uma compra parcelada: soma das parcelas vivas cuja descrição
      * segue "base (i/N)". [padrao] já vem com % e _ escapados; irmãs sempre
      * compartilham o mesmo [cartaoUuid] ("" = parcelado sem cartão).

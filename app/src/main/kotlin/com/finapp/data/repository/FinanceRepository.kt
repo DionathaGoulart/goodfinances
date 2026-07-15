@@ -211,6 +211,14 @@ class FinanceRepository @Inject constructor(
         fim: LocalDate
     ): Flow<Long> = transacaoDao.observarPendentePorTipo(perfil, tipo, inicio, fim)
 
+    /** Gastos atrasados (pendência com vencimento passado), em centavos. */
+    fun observarAtrasado(perfil: Perfil, hoje: LocalDate): Flow<Long> =
+        transacaoDao.observarAtrasado(perfil, hoje)
+
+    /** Pendências de GASTO vencendo até [ate] — lembretes de vencimento. */
+    suspend fun listarGastosPendentesAte(perfil: Perfil, ate: LocalDate): List<Transacao> =
+        transacaoDao.listarGastosPendentesAte(perfil, ate)
+
     fun observarGanhos(perfil: Perfil, inicio: LocalDate, fim: LocalDate): Flow<Long> =
         transacaoDao.observarSomaPorTipo(perfil, TipoTransacao.GANHO, inicio, fim)
 

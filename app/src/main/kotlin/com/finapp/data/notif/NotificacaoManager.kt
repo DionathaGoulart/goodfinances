@@ -33,16 +33,19 @@ import javax.inject.Singleton
 import kotlin.math.roundToInt
 
 /**
- * Avaliação diária dos eventos financeiros e disparo de notificações locais.
- * Roda no [NotificacaoWorker] (WorkManager) uma vez por dia; não depende de
- * o app estar aberto. Toda notificação é deduplicada por período em prefs
- * para não repetir (ex: orçamento estourado avisa uma vez no mês).
+ * Avaliação dos eventos financeiros e disparo de notificações locais.
+ * Roda no [NotificacaoWorker] (WorkManager) três vezes por dia (manhã, tarde
+ * e noite); não depende de o app estar aberto. Toda notificação é deduplicada
+ * por período em prefs para não repetir (ex: orçamento estourado avisa uma
+ * vez no mês; vencimentos repetem por faixa do dia, de propósito).
  *
  * Gatilhos:
+ *  - Vencimentos: gasto pendente/fatura de cartão avisa TODO DIA (3x) a
+ *    partir de 5 dias antes e enquanto estiver atrasado.
  *  - DAS (empresa): lembrete dias 18/19/20.
  *  - Orçamento de categoria: avisa em 80% e em 100% do teto do mês.
  *  - Limite do MEI: avisa quando o faturamento do ano passa de 80% de R$ 81 mil.
- *  - Recorrente/salário: heads-up no dia em que uma recorrência entra.
+ *  - Recorrente de GANHO (salário): heads-up no dia em que entra.
  *  - Inatividade: lembrete gentil após 3 dias sem lançar nada.
  */
 @Singleton
@@ -95,6 +98,7 @@ class NotificacaoManager @Inject constructor(
         val mesTag = "${hoje.year}-${hoje.monthValue}"
 
         limparChavesAntigas(hoje, mesTag)
+        runCatching { avaliarVencimentos(baldes, hoje) }
         runCatching { avaliarRecorrentes(baldes, hoje) }
         runCatching { avaliarContas(baldes, hoje) }
         runCatching { avaliarOrcamentos(baldes, hoje, mesTag) }
@@ -105,10 +109,64 @@ class NotificacaoManager @Inject constructor(
 
     // ---------- Gatilhos ----------
 
-    /** Recorrências (inclui salário e DAS) que entram/vencem hoje. */
+    /**
+     * Lembretes de vencimento dos GASTOS pendentes (gasto frequente, fatura
+     * de cartão, parcela): avisa TODO DIA a partir de [DIAS_AVISO_VENCIMENTO]
+     * dias antes e continua avisando enquanto estiver atrasado — uma vez por
+     * faixa do dia (manhã/tarde/noite), acompanhando as rodadas do worker.
+     * Compras no crédito viram um aviso único por fatura (cartão + vencimento).
+     */
+    private suspend fun avaliarVencimentos(baldes: List<Perfil>, hoje: LocalDate) {
+        val periodo = PeriodoDia.deHora(java.time.LocalTime.now().hour).rotulo
+        val limite = hoje.plusDays(DIAS_AVISO_VENCIMENTO)
+        baldes.forEach { balde ->
+            val pendentes = repository.listarGastosPendentesAte(balde, limite)
+            if (pendentes.isEmpty()) return@forEach
+            val (noCartao, avulsos) = pendentes.partition { it.cartaoUuid.isNotBlank() }
+
+            val cartoes = repository.listarCartoes(balde)
+            noCartao.groupBy { it.cartaoUuid to it.data }.forEach { (chave, itens) ->
+                val (uuid, vencimento) = chave
+                if (!marcarSeNovo("notif_venc_fat_${uuid}_${vencimento}_${hoje}_$periodo")) {
+                    return@forEach
+                }
+                val nome = cartoes.firstOrNull { it.uuid == uuid }?.nome ?: "Cartão"
+                val dias = ChronoUnit.DAYS.between(hoje, vencimento)
+                postar(
+                    id = ID_VENCIMENTO + (uuid + vencimento).hashCode(),
+                    canal = CANAL_ALERTAS,
+                    titulo = if (dias < 0) "Fatura ATRASADA" else "Fatura do cartão",
+                    texto = "Fatura do $nome ${mensagemPrazo(dias)} — " +
+                        Formatadores.moeda(itens.sumOf { it.valor })
+                )
+            }
+
+            avulsos.forEach { pendente ->
+                if (!marcarSeNovo("notif_venc_${pendente.uuid}_${hoje}_$periodo")) {
+                    return@forEach
+                }
+                val dias = ChronoUnit.DAYS.between(hoje, pendente.data)
+                val nome = pendente.descricao.ifBlank { pendente.categoria }
+                postar(
+                    id = ID_VENCIMENTO + pendente.uuid.hashCode(),
+                    canal = CANAL_ALERTAS,
+                    titulo = if (dias < 0) "Conta ATRASADA" else "Conta a pagar",
+                    texto = "$nome ${mensagemPrazo(dias)} — " +
+                        Formatadores.moeda(pendente.valor)
+                )
+            }
+        }
+    }
+
+    /**
+     * Recorrências de GANHO (salário, entradas) que entram hoje. Os GASTOS
+     * recorrentes ficam de fora: a ocorrência pendente deles já é coberta
+     * pelos lembretes de vencimento ([avaliarVencimentos]).
+     */
     private suspend fun avaliarRecorrentes(baldes: List<Perfil>, hoje: LocalDate) {
         baldes.forEach { balde ->
             repository.listarRecorrentesAtivas(balde)
+                .filter { it.tipo == TipoTransacao.GANHO }
                 .filter { rec ->
                     // Recorrência mensal é materializada meses à frente (o
                     // cursor proximoLancamento fica longe): o lembrete sai
@@ -307,6 +365,8 @@ class NotificacaoManager @Inject constructor(
                 chave == CHAVE_INATIVO -> false // timestamp, não é dedup
                 chave.startsWith("notif_rec_") || chave.startsWith("notif_conta_") ->
                     !chave.endsWith(sufixoDia)
+                // Vencimentos carregam dia + faixa: "..._2026-07-14_manha"
+                chave.startsWith("notif_venc") -> !chave.contains(sufixoDia)
                 chave.startsWith("notif_orc") || chave.startsWith("notif_das_") ->
                     !chave.contains(sufixoMes)
                 chave.startsWith("notif_mei_") -> !chave.contains(sufixoMes)
@@ -354,6 +414,7 @@ class NotificacaoManager @Inject constructor(
         const val ID_RECORRENTE = 1_000
         const val ID_ORCAMENTO = 2_000
         const val ID_CONTA = 3_000
+        const val ID_VENCIMENTO = 4_000
         const val ID_DAS = 10
         const val ID_MEI = 11
         const val ID_INATIVO = 12

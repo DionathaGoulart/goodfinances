@@ -103,6 +103,7 @@ fun HomeScreen(
     val saldo by viewModel.saldoTotal.collectAsStateWithLifecycle()
     val aPagarMes by viewModel.aPagarMes.collectAsStateWithLifecycle()
     val aReceberMes by viewModel.aReceberMes.collectAsStateWithLifecycle()
+    val atrasado by viewModel.atrasado.collectAsStateWithLifecycle()
     val ganhos by viewModel.ganhosMes.collectAsStateWithLifecycle()
     val gastos by viewModel.gastosMes.collectAsStateWithLifecycle()
     val transacoesDoMes by viewModel.transacoesDoMes.collectAsStateWithLifecycle()
@@ -394,6 +395,7 @@ fun HomeScreen(
                         // sair e quanto sobra depois de pagar tudo
                         aPagarMes = aPagarMes,
                         aReceberMes = aReceberMes,
+                        atrasado = atrasado,
                         saldoAposPagar = saldo - aPagarMes,
                         // Mesmo hub em todos os contextos; na empresa os cards
                         // Receita/Despesa + Lucro abaixo complementam o resumo

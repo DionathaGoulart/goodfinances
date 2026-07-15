@@ -1394,7 +1394,12 @@ fun ConfigScreen(
         var diaTexto by remember { mutableStateOf("") }
         var erroValor by remember { mutableStateOf<String?>(null) }
         var erroDia by remember { mutableStateOf<String?>(null) }
-        var duraAteTexto by remember { mutableStateOf("") }
+        // "Dura até" já vem preenchido com 12 meses à frente (o horizonte
+        // padrão) — o usuário ajusta ou apaga para repetir sem fim
+        var duraAteTexto by remember {
+            val padrao = java.time.YearMonth.now().plusMonths(12)
+            mutableStateOf("%02d/%04d".format(padrao.monthValue, padrao.year))
+        }
         var erroDuraAte by remember { mutableStateOf<String?>(null) }
         // Categoria é seleção pura (sem digitação), como no TransacaoModal
         val categoriasGasto = categorias.filter {
@@ -1459,13 +1464,13 @@ fun ConfigScreen(
                             duraAteTexto = it.filter { c -> c.isDigit() || c == '/' }.take(7)
                             erroDuraAte = null
                         },
-                        label = { Text("Dura até (MM/AAAA, opcional)") },
+                        label = { Text("Dura até (MM/AAAA)") },
                         placeholder = { Text("Ex: 12/2026") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         isError = erroDuraAte != null,
                         supportingText = {
-                            Text(erroDuraAte ?: "Vazio = repete sem data de fim")
+                            Text(erroDuraAte ?: "Padrão: 12 meses · vazio = repete sem fim")
                         }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
