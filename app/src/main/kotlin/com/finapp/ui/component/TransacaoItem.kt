@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
+import com.finapp.data.db.entities.dataEfetiva
 import com.finapp.ui.theme.GreenPrimary
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
@@ -148,8 +149,10 @@ fun TransacaoItem(
                         modifier = Modifier.size(14.dp)
                     )
                 }
-                // Pendente: tem data para pagar, ainda não desconta do saldo.
-                // Gasto cujo vencimento já passou vira "Atrasado" em vermelho.
+                // Pendente: mostra o VENCIMENTO ao lado do relógio ("Vence
+                // 20/07"); atrasado vira "Venceu 10/07" em vermelho. Compra
+                // no crédito em dia fica só com o ícone (o vencimento já
+                // está no cabeçalho do grupo do cartão).
                 if (!transacao.pago) {
                     val atrasada = transacao.tipo == TipoTransacao.GASTO &&
                         transacao.data.isBefore(LocalDate.now())
@@ -164,12 +167,45 @@ fun TransacaoItem(
                         tint = if (atrasada) RedExpense else MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.size(14.dp)
                     )
-                    if (atrasada) {
+                    if (atrasada || transacao.cartaoUuid.isBlank()) {
                         Spacer(modifier = Modifier.width(2.dp))
                         Text(
-                            text = "Atrasado",
+                            text = when {
+                                atrasada ->
+                                    "Venceu ${Formatadores.dataDiaMes(transacao.data)}"
+                                transacao.tipo == TipoTransacao.GANHO ->
+                                    "Recebe ${Formatadores.dataDiaMes(transacao.data)}"
+                                else ->
+                                    "Vence ${Formatadores.dataDiaMes(transacao.data)}"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
-                            color = RedExpense
+                            color = if (atrasada) {
+                                RedExpense
+                            } else {
+                                MaterialTheme.colorScheme.tertiary
+                            }
+                        )
+                    }
+                } else {
+                    // Paga com baixa registrada: mostra o dia em que pagou
+                    val diaPago = transacao.dataPagamento
+                    if (diaPago != null) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = GreenPrimary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = (if (transacao.tipo == TipoTransacao.GANHO) {
+                                "Recebido "
+                            } else {
+                                "Pago "
+                            }) + Formatadores.dataDiaMes(diaPago),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -205,8 +241,10 @@ fun TransacaoItem(
                 color = if (transacao.pago) cor else cor.copy(alpha = 0.85f)
             )
             if (mostrarData) {
+                // Paga: mostra o dia em que foi paga de fato; o vencimento
+                // ([data]) só aparece enquanto a pendência está aberta
                 Text(
-                    text = Formatadores.dataCurta(transacao.data),
+                    text = Formatadores.dataCurta(transacao.dataEfetiva),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

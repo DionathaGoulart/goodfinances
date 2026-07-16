@@ -68,12 +68,27 @@ data class Transacao(
      */
     val pago: Boolean = true,
     /**
+     * Dia em que a pendência foi paga/recebida de fato (null = pagou sem
+     * registrar o dia, ou nasceu paga — nesses casos [data] é o dia efetivo).
+     * O histórico agrupa pelo dia pago; [data] (vencimento) só aparece
+     * enquanto a pendência está aberta.
+     */
+    val dataPagamento: LocalDate? = null,
+    /**
      * Uuid da [TransacaoRecorrente] que gerou esta ocorrência ("" = manual).
      * Editar/encerrar a recorrência propaga só para as ocorrências futuras
      * NÃO PAGAS vinculadas por aqui.
      */
     val recorrenciaUuid: String = ""
 )
+
+/**
+ * Dia efetivo no histórico: o dia pago quando a transação já foi paga
+ * (linhas antigas sem registro caem na própria [Transacao.data]); o
+ * vencimento ([Transacao.data]) enquanto a pendência está aberta.
+ */
+val Transacao.dataEfetiva: LocalDate
+    get() = if (pago) dataPagamento ?: data else data
 
 /**
  * Na Casa, só quem lançou pode editar/apagar. Compara pelo uid quando

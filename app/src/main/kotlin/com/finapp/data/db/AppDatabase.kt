@@ -23,7 +23,7 @@ import com.finapp.data.db.entities.TransacaoRecorrente
         Meta::class,
         ContaAgendada::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -428,6 +428,18 @@ abstract class AppDatabase : RoomDatabase() {
                         "WHERE frequencia = 'MENSAL' AND tipo = 'GANHO' " +
                         "AND ativa = 1 AND deletado = 0"
                 )
+            }
+        }
+
+        /**
+         * v15 -> v16: Transacao.dataPagamento (epoch day, nullable) — o dia
+         * em que a pendência foi paga de fato; o histórico agrupa por ele.
+         * Sem backfill: nas linhas antigas fica NULL e a exibição cai na
+         * própria `data`.
+         */
+        val MIGRACAO_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE Transacao ADD COLUMN dataPagamento INTEGER")
             }
         }
     }

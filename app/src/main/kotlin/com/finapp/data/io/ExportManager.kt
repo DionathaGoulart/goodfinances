@@ -142,6 +142,8 @@ class ExportManager @Inject constructor(
                         if (t.notaFiscal.isNotBlank()) put("notaFiscal", t.notaFiscal)
                         // Pendência (fatura/recorrência não paga) sobrevive ao backup
                         if (!t.pago) put("pago", false)
+                        // Dia em que a pendência foi paga (o histórico agrupa por ele)
+                        t.dataPagamento?.let { put("dataPagamento", it.toString()) }
                         // Vínculo com o cartão e privacidade da visão Membros:
                         // sem eles o restore desagrupa as compras de crédito e
                         // re-espelha lançamentos escondidos

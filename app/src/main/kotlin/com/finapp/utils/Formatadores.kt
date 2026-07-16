@@ -21,11 +21,17 @@ object Formatadores {
     private val dataAgrupamento: DateTimeFormatter =
         DateTimeFormatter.ofPattern("d 'DE' MMM, EEEE", LOCALE_BR)
 
+    private val dataDiaMes: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("dd/MM", LOCALE_BR)
+
     /** Centavos -> moeda. Ex: 123456 -> "R$ 1.234,56" */
     fun moeda(centavos: Long): String = moeda.get()!!.format(centavos / 100.0)
 
     /** Ex: 2024-06-15 -> "15/06/2024" */
     fun dataCurta(data: LocalDate): String = data.format(dataCurta)
+
+    /** Ex: 2024-06-15 -> "15/06" (rótulos compactos na linha da lista). */
+    fun dataDiaMes(data: LocalDate): String = data.format(dataDiaMes)
 
     /** Ex: 2024-06-15 -> "15 DE JUN, DOMINGO" (header de grupo na lista) */
     fun dataAgrupamento(data: LocalDate): String =

@@ -247,7 +247,7 @@ interface TransacaoDao {
      */
     @Query(
         """
-        UPDATE Transacao SET pago = 1, atualizadoEm = :agora
+        UPDATE Transacao SET pago = 1, dataPagamento = data, atualizadoEm = :agora
         WHERE recorrenciaUuid = :recorrenciaUuid AND data = :data
             AND pago = 0 AND deletado = 0
         """
@@ -274,11 +274,16 @@ interface TransacaoDao {
     /** Marca um lote como pago/pendente (pagar fatura marca o grupo inteiro). */
     @Query(
         """
-        UPDATE Transacao SET pago = :pago, atualizadoEm = :agora
+        UPDATE Transacao SET pago = :pago, dataPagamento = :dataPagamento, atualizadoEm = :agora
         WHERE uuid IN (:uuids)
         """
     )
-    suspend fun marcarPagas(uuids: List<String>, pago: Boolean, agora: Long)
+    suspend fun marcarPagas(
+        uuids: List<String>,
+        pago: Boolean,
+        dataPagamento: LocalDate?,
+        agora: Long
+    )
 
     // Transferências entre baldes (categoria 'Transferência') movem só o
     // SALDO — ficam FORA de receita/despesa/faturamento/estatísticas.

@@ -92,14 +92,32 @@ class FinanceRepository @Inject constructor(
     suspend fun ocultarTransacao(transacao: Transacao, oculto: Boolean) =
         transacaoDao.atualizar(transacao.copy(oculto = oculto, atualizadoEm = agora()))
 
-    /** Marca/desmarca como paga: pendente não conta no saldo até pagar. */
-    suspend fun marcarTransacaoPaga(transacao: Transacao, pago: Boolean) =
-        transacaoDao.atualizar(transacao.copy(pago = pago, atualizadoEm = agora()))
+    /**
+     * Marca/desmarca como paga: pendente não conta no saldo até pagar.
+     * Dar baixa registra o dia do pagamento ([dataPagamento], padrão hoje) —
+     * o histórico agrupa por ele; reverter para pendente limpa o registro.
+     */
+    suspend fun marcarTransacaoPaga(
+        transacao: Transacao,
+        pago: Boolean,
+        dataPagamento: LocalDate? = null
+    ) = transacaoDao.atualizar(
+        transacao.copy(
+            pago = pago,
+            dataPagamento = if (pago) dataPagamento ?: LocalDate.now() else null,
+            atualizadoEm = agora()
+        )
+    )
 
     /** Paga a fatura: marca todas as compras do grupo como pagas de uma vez. */
     suspend fun pagarTransacoes(transacoes: List<Transacao>) {
         if (transacoes.isEmpty()) return
-        transacaoDao.marcarPagas(transacoes.map { it.uuid }, pago = true, agora = agora())
+        transacaoDao.marcarPagas(
+            transacoes.map { it.uuid },
+            pago = true,
+            dataPagamento = LocalDate.now(),
+            agora = agora()
+        )
     }
 
     /** Desfaz uma deleção lógica (undo do swipe/modal) — o par junto. */

@@ -23,7 +23,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.ui.theme.GreenPrimary
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
@@ -32,8 +31,8 @@ import com.finapp.utils.Formatadores
  * Card principal do Dashboard: saldo total em destaque e, abaixo de uma
  * divisória, uma faixa fina com o resumo do mês (entrou/saiu) e as pendências
  * ("a pagar" → quanto sobra depois de pagar tudo).
- * [mostrarResumoMes] liga a linha "Este mês +ganhos −gastos" (contextos
- * pessoais); no contexto de empresa, os cards Receita/Despesa já cobrem isso.
+ * [mostrarResumoMes] liga a linha "Este mês +ganhos −gastos" — em todos os
+ * contextos (na empresa, o LucroCard abaixo só complementa, sem duplicar).
  * [rotuloMes] identifica o mês do resumo ("Este mês" ou "Em Julho" ao
  * navegar no histórico).
  */
@@ -208,51 +207,6 @@ private fun ValorAssinado(
             style = MaterialTheme.typography.bodyLarge,
             color = cor
         )
-    }
-}
-
-/** Card compacto de Ganhos ou Gastos do mês, em centavos (ficam lado a lado). */
-@Composable
-fun ResumoCard(
-    tipo: TipoTransacao,
-    valor: Long,
-    modifier: Modifier = Modifier,
-    rotuloCustom: String? = null
-) {
-    val (rotuloPadrao, icone, cor) = when (tipo) {
-        TipoTransacao.GANHO -> Triple("Ganhos", Icons.Filled.ArrowUpward, GreenPrimary)
-        TipoTransacao.GASTO -> Triple("Gastos", Icons.Filled.ArrowDownward, RedExpense)
-    }
-    val rotulo = rotuloCustom ?: rotuloPadrao
-
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = icone,
-                    contentDescription = rotulo,
-                    tint = cor,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = rotulo,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = Formatadores.moeda(valor),
-                style = MaterialTheme.typography.titleMedium,
-                color = cor
-            )
-        }
     }
 }
 
