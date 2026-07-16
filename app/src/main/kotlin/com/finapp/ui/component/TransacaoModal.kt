@@ -144,6 +144,14 @@ fun TransacaoModal(
     var dropdownAberto by remember { mutableStateOf(false) }
     var datePickerAberto by remember { mutableStateOf(false) }
 
+    // Status de pagamento editável (só edição): dar baixa registra o dia
+    // pago (o histórico agrupa por ele); desmarcar reabre a pendência.
+    var pagoEdicao by remember { mutableStateOf(transacaoParaEditar?.pago ?: true) }
+    var dataPagamentoEdicao by remember {
+        mutableStateOf(transacaoParaEditar?.dataPagamento)
+    }
+    var datePickerPagamentoAberto by remember { mutableStateOf(false) }
+
     // ---------- Nota fiscal / comprovante (todos os contextos) ----------
     val perfilDados by viewModel.perfil.collectAsStateWithLifecycle()
     val notaOriginal = transacaoParaEditar?.notaFiscal ?: ""
@@ -446,7 +454,18 @@ fun TransacaoModal(
                     value = Formatadores.dataCurta(data),
                     onValueChange = {},
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(if (ehCompraCredito) "Data da compra" else "Data") },
+                    label = {
+                        // Pendência/ocorrência de recorrência: a data aqui é o
+                        // VENCIMENTO (o dia pago tem campo próprio abaixo)
+                        Text(
+                            when {
+                                ehCompraCredito -> "Data da compra"
+                                transacaoParaEditar?.recorrenciaUuid?.isNotBlank() == true ||
+                                    transacaoParaEditar?.pago == false -> "Data de vencimento"
+                                else -> "Data"
+                            }
+                        )
+                    },
                     readOnly = true,
                     trailingIcon = {
                         Icon(
@@ -530,6 +549,76 @@ fun TransacaoModal(
                         TextButton(onClick = { definirNota("") }) {
                             Text("Remover")
                         }
+                    }
+                }
+            }
+
+            // ---------- Status de pagamento (só edição) ----------
+            // Alterna pago/pendente por aqui mesmo e, ao dar baixa, deixa
+            // escolher o dia em que pagou de fato (padrão: hoje).
+            if (edicao && !ehTransferencia) {
+                val ehGanho = tipo == TipoTransacao.GANHO
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    // Linha inteira alterna o checkbox: um único nó de foco
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = pagoEdicao,
+                            role = Role.Checkbox,
+                            onValueChange = { marcado ->
+                                pagoEdicao = marcado
+                                dataPagamentoEdicao = if (marcado) {
+                                    dataPagamentoEdicao ?: LocalDate.now()
+                                } else {
+                                    null
+                                }
+                            }
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = pagoEdicao,
+                        onCheckedChange = null
+                    )
+                    Text(
+                        text = when {
+                            pagoEdicao && ehGanho -> "Recebido"
+                            pagoEdicao -> "Pago"
+                            ehGanho -> "A receber (não conta no saldo)"
+                            else -> "A pagar (não conta no saldo)"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (pagoEdicao) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = Formatadores.dataCurta(dataPagamentoEdicao ?: data),
+                            onValueChange = {},
+                            modifier = Modifier.fillMaxWidth(),
+                            label = {
+                                Text(
+                                    if (ehGanho) "Data do recebimento"
+                                    else "Data do pagamento"
+                                )
+                            },
+                            readOnly = true,
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.DateRange,
+                                    contentDescription = "Escolher data do pagamento"
+                                )
+                            }
+                        )
+                        // Overlay transparente: readOnly não repassa toques
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable { datePickerPagamentoAberto = true }
+                        )
                     }
                 }
             }
@@ -818,8 +907,10 @@ fun TransacaoModal(
 
             // ---------- Ações ----------
             // Pendência ("a pagar"/"a receber"): dar baixa é a ação mais
-            // comum — botão em destaque, sem precisar do menu de segurar
-            if (edicao && transacaoParaEditar?.pago == false) {
+            // comum — botão em destaque, sem precisar do menu de segurar.
+            // Some quando o checkbox acima já marcou como pago (aí o fluxo
+            // é ajustar a data e confirmar no ATUALIZAR).
+            if (edicao && transacaoParaEditar?.pago == false && !pagoEdicao) {
                 Button(
                     onClick = {
                         viewModel.alternarPago(transacaoParaEditar)
@@ -908,7 +999,19 @@ fun TransacaoModal(
                                         descricao = descricao.trim(),
                                         data = novaData,
                                         dataCompra = novaDataCompra,
-                                        notaFiscal = notaFiscal
+                                        notaFiscal = notaFiscal,
+                                        // Status ajustado no checkbox: dar baixa
+                                        // leva o dia pago; reabrir limpa
+                                        pago = if (ehTransferencia) {
+                                            original.pago
+                                        } else {
+                                            pagoEdicao
+                                        },
+                                        dataPagamento = when {
+                                            ehTransferencia -> original.dataPagamento
+                                            pagoEdicao -> dataPagamentoEdicao
+                                            else -> null
+                                        }
                                     )
                                 )
                                 // Nota substituída/removida: apaga o arquivo antigo
@@ -978,6 +1081,38 @@ fun TransacaoModal(
             }
         ) {
             DatePicker(state = estadoData)
+        }
+    }
+
+    // ---------- DatePicker da data do pagamento (edição) ----------
+    if (datePickerPagamentoAberto) {
+        val estadoDataPagamento = rememberDatePickerState(
+            initialSelectedDateMillis = (dataPagamentoEdicao ?: data)
+                .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { datePickerPagamentoAberto = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        estadoDataPagamento.selectedDateMillis?.let { millis ->
+                            dataPagamentoEdicao = Instant.ofEpochMilli(millis)
+                                .atZone(ZoneOffset.UTC)
+                                .toLocalDate()
+                        }
+                        datePickerPagamentoAberto = false
+                    }
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { datePickerPagamentoAberto = false }) {
+                    Text("Cancelar")
+                }
+            }
+        ) {
+            DatePicker(state = estadoDataPagamento)
         }
     }
 }

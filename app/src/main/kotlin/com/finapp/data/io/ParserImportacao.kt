@@ -106,6 +106,9 @@ class ParserImportacao @Inject constructor() {
                 transferenciaId = obj.optString("transferenciaId", ""),
                 notaFiscal = obj.optString("notaFiscal", ""),
                 pago = obj.optBoolean("pago", true),
+                dataPagamento = obj.optString("dataPagamento")
+                    .takeIf { it.isNotBlank() }
+                    ?.let { parseData(it, i + 1) },
                 cartaoUuid = obj.optString("cartaoUuid", ""),
                 dataCompra = obj.optString("dataCompra")
                     .takeIf { it.isNotBlank() }

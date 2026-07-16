@@ -65,12 +65,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.finapp.data.EstadoDownload
 import com.finapp.data.db.entities.Perfil
-import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
+import com.finapp.data.db.entities.dataEfetiva
 import com.finapp.data.db.entities.ehEmpresa
 import com.finapp.ui.component.CartaoGrupoCard
 import com.finapp.ui.component.LucroCard
-import com.finapp.ui.component.ResumoCard
 import com.finapp.ui.component.SaldoCard
 import com.finapp.ui.component.TransacaoLinha
 import com.finapp.ui.component.agruparPorCartao
@@ -352,8 +351,13 @@ fun HomeScreen(
 
             // Fundo dos itens dentro do card do cartão (integra à moldura)
             val corItemCartao = MaterialTheme.colorScheme.surface
-            // Avulsas agrupadas por dia (a query já vem ordenada por data)
-            val avulsasPorDia = remember(avulsas) { avulsas.groupBy { it.data } }
+            // Avulsas agrupadas pelo dia EFETIVO: dia pago quando já pagou,
+            // vencimento enquanto pendente (reordena porque a query vem por data)
+            val avulsasPorDia = remember(avulsas) {
+                avulsas
+                    .sortedByDescending { it.dataEfetiva }
+                    .groupBy { it.dataEfetiva }
+            }
 
             // Modo busca: resultados de TODOS os meses no lugar do dashboard
             if (buscando) {
@@ -415,26 +419,10 @@ fun HomeScreen(
                         OrcamentoCard(orcamento = orc)
                     }
                 }
+                // Receita/Despesa já aparecem na linha "Este mês" do SaldoCard;
+                // na empresa só o Lucro complementa (não duplica o resumo)
                 if (cnpj) {
                     item(key = "cards-cnpj") {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            ResumoCard(
-                                tipo = TipoTransacao.GANHO,
-                                valor = ganhos,
-                                modifier = Modifier.weight(1f),
-                                rotuloCustom = "Receita"
-                            )
-                            ResumoCard(
-                                tipo = TipoTransacao.GASTO,
-                                valor = gastos,
-                                modifier = Modifier.weight(1f),
-                                rotuloCustom = "Despesa"
-                            )
-                        }
                         Spacer(modifier = Modifier.height(12.dp))
                         LucroCard(lucro = ganhos - gastos)
                     }
@@ -828,7 +816,11 @@ private fun ListaBusca(
     hoje: java.time.LocalDate,
     linha: @Composable (Transacao, Color?) -> Unit
 ) {
-    val porDia = remember(resultados) { resultados.groupBy { it.data } }
+    val porDia = remember(resultados) {
+        resultados
+            .sortedByDescending { it.dataEfetiva }
+            .groupBy { it.dataEfetiva }
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 96.dp)
