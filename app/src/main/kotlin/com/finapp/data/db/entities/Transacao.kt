@@ -91,6 +91,30 @@ val Transacao.dataEfetiva: LocalDate
     get() = if (pago) dataPagamento ?: data else data
 
 /**
+ * True quando a transação passa pelo filtro "de quem" da visão unificada
+ * Pessoal+Casa. O dono é DERIVADO do balde (não é coluna): Casa = balde
+ * compartilhado, Membro = espelho de quem compartilha, Eu = balde privado.
+ */
+fun Transacao.atendeFiltro(filtro: FiltroDono): Boolean = when (filtro) {
+    FiltroDono.Tudo -> true
+    FiltroDono.Casa -> perfil == Perfil.CASA
+    FiltroDono.Eu -> perfil != Perfil.CASA && perfil != Perfil.CASA_MEMBROS
+    is FiltroDono.Membro -> perfil == Perfil.CASA_MEMBROS && criadoPorUid == filtro.uid
+}
+
+/**
+ * Rótulo curto de "de quem é", para o selo da linha do histórico. Vazio
+ * quando não há o que distinguir (sem casa, ou dentro da empresa) — selo em
+ * toda linha só faria ruído.
+ */
+fun Transacao.rotuloDono(temCasa: Boolean): String = when {
+    perfil == Perfil.CASA_MEMBROS -> criadoPor.ifBlank { "Membro" }
+    !temCasa || perfil.ehEmpresa -> ""
+    perfil == Perfil.CASA -> "Casa"
+    else -> "Meu"
+}
+
+/**
  * Na Casa, só quem lançou pode editar/apagar. Compara pelo uid quando
  * disponível (à prova de nomes repetidos); lançamentos antigos só com nome
  * comparam pelo nome; sem autor nenhum, continuam editáveis por todos.

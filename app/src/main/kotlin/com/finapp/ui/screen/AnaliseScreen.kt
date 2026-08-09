@@ -103,7 +103,7 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
     val insights by viewModel.insights.collectAsStateWithLifecycle()
     val faturas by viewModel.faturas.collectAsStateWithLifecycle()
     val contextos by viewModel.contextos.collectAsStateWithLifecycle()
-    val baldes by viewModel.baldes.collectAsStateWithLifecycle()
+    val contextosSelecionados by viewModel.contextosSelecionados.collectAsStateWithLifecycle()
 
     var rangePickerAberto by remember { mutableStateOf(false) }
     var detalheAberto by remember { mutableStateOf<DetalheEstatistica?>(null) }
@@ -127,7 +127,7 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // ---------- Contextos combináveis (Pessoal / Empresa / Casa) ----------
+        // ---------- Contextos combináveis (Pessoal / Empresa) ----------
         // Toque liga/desliga cada contexto: dá para ver um só, dois juntos
         // ou todos somados nos gráficos. Some quando só existe um contexto.
         if (contextos.size > 1) {
@@ -137,10 +137,10 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
             ) {
                 contextos.forEach { contexto ->
                     FilterChip(
-                        selected = contexto in baldes,
+                        selected = contexto in contextosSelecionados,
                         onClick = { viewModel.alternarContexto(contexto) },
                         label = { Text(contexto.rotulo) },
-                        leadingIcon = if (contexto in baldes) {
+                        leadingIcon = if (contexto in contextosSelecionados) {
                             {
                                 Icon(
                                     imageVector = Icons.Filled.Check,

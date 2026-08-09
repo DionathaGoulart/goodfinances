@@ -41,6 +41,34 @@ enum class Perfil(val rotulo: String, val descricao: String) {
     }
 }
 
+/**
+ * De quem é um lançamento do contexto pessoal. A escolha decide o BALDE de
+ * armazenamento (e, por tabela, o que sincroniza):
+ *
+ * - [CASA] é o padrão: vai para o balde [Perfil.CASA] e todo membro da casa vê.
+ * - [EU] vai para o balde pessoal privado ([Perfil.PESSOA_FISICA] /
+ *   [Perfil.MEI_PESSOAL]) e só sobe se "compartilhar lançamentos pessoais"
+ *   estiver ligado.
+ *
+ * Sem casa, só [EU] existe — não há com quem compartilhar.
+ */
+enum class Dono(val rotulo: String) {
+    CASA("Casa"),
+    EU("Meu")
+}
+
+/**
+ * Filtro "de quem" da lista unificada Pessoal+Casa. [MEMBRO] carrega o uid do
+ * membro da casa cujos lançamentos pessoais chegaram pelo espelho
+ * ([Perfil.CASA_MEMBROS]) — só existe para quem ligou o compartilhamento.
+ */
+sealed interface FiltroDono {
+    data object Tudo : FiltroDono
+    data object Casa : FiltroDono
+    data object Eu : FiltroDono
+    data class Membro(val uid: String, val nome: String) : FiltroDono
+}
+
 /** Balde que guarda dados da empresa: habilita nota fiscal e o tema empresa. */
 val Perfil.ehEmpresa: Boolean
     get() = this == Perfil.CNPJ || this == Perfil.MEI_NEGOCIO

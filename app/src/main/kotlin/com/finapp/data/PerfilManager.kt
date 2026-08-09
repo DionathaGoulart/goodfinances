@@ -2,9 +2,11 @@ package com.finapp.data
 
 import android.content.Context
 import androidx.core.content.edit
+import com.finapp.data.db.entities.Dono
 import com.finapp.data.db.entities.ModoUso
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoEmpresa
+import com.finapp.data.db.entities.ehEmpresa
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,9 +19,14 @@ import javax.inject.Singleton
  * como StateFlow, para que todas as telas reajam à troca em tempo real.
  *
  * [perfilAtivo] é o modo de uso escolhido (Pessoal / Pessoal+Empresa / Empresa).
- * [contextosDisponiveis] são as abas da Home: os baldes do modo + CASA
- * quando o usuário está numa casa (o CasaManager informa via [definirTemCasa]).
- * [perfilDados] é o contexto/balde ativo — todas as queries derivam dele.
+ * [contextosDisponiveis] são as abas da Home. **A Casa NÃO é mais uma aba**:
+ * o lado pessoal e o da casa são uma visão só (o "de quem" é escolhido em cada
+ * lançamento, via [Dono]) — só a Empresa fica separada.
+ * [perfilDados] é o balde PRIVADO do contexto ativo (destino de escrita
+ * padrão e âncora das telas que ainda operam num balde só);
+ * [baldesVisiveis] é o conjunto que as LISTAS leem e [baldesFinanceiros] o
+ * que entra em saldo/agregado — a diferença é o espelho dos membros, que
+ * aparece na lista mas nunca no seu saldo.
  */
 @Singleton
 class PerfilManager @Inject constructor(
@@ -34,12 +41,27 @@ class PerfilManager @Inject constructor(
     private var temCasa = prefs.contains(CHAVE_CASA_ID)
 
     private val _contextosDisponiveis = MutableStateFlow(calcularContextos())
-    /** Abas da Home (ex: Pessoal | Empresa | Casa). */
+    /** Abas da Home: Pessoal (inclui a Casa) e, nos modos com empresa, Empresa. */
     val contextosDisponiveis: StateFlow<List<Perfil>> = _contextosDisponiveis.asStateFlow()
 
     private val _perfilDados = MutableStateFlow(lerContexto())
-    /** Contexto/balde ativo — as queries de todas as telas seguem este flow. */
+    /** Contexto/balde PRIVADO ativo — destino de escrita padrão e âncora das telas. */
     val perfilDados: StateFlow<Perfil> = _perfilDados.asStateFlow()
+
+    private val _baldesVisiveis = MutableStateFlow(calcularBaldesVisiveis())
+    /**
+     * Baldes que as LISTAS do contexto ativo leem. No pessoal com casa:
+     * privado + Casa + espelho dos membros. Na empresa: só ela.
+     */
+    val baldesVisiveis: StateFlow<List<Perfil>> = _baldesVisiveis.asStateFlow()
+
+    private val _baldesFinanceiros = MutableStateFlow(calcularBaldesFinanceiros())
+    /**
+     * Baldes que entram em saldo/somas/pendências. É [baldesVisiveis] SEM o
+     * espelho dos membros: o gasto pessoal da sua esposa aparece na lista
+     * (para você saber o que rolou), mas não pode descontar do SEU saldo.
+     */
+    val baldesFinanceiros: StateFlow<List<Perfil>> = _baldesFinanceiros.asStateFlow()
 
     private val _perfilFoiEscolhido = MutableStateFlow(prefs.contains(CHAVE_PERFIL))
     /** False apenas na primeira abertura — dispara a tela de seleção de perfil. */
@@ -76,11 +98,12 @@ class PerfilManager @Inject constructor(
         mudarContexto(_contextosDisponiveis.value.first())
     }
 
-    /** Troca a aba ativa (Pessoal / Empresa / Casa). */
+    /** Troca a aba ativa (Pessoal / Empresa). */
     fun mudarContexto(contexto: Perfil) {
         if (contexto !in _contextosDisponiveis.value) return
         prefs.edit { putString(CHAVE_CONTEXTO, contexto.name) }
         _perfilDados.value = contexto
+        atualizarBaldes()
     }
 
     /** True quando o usuário está numa casa (o repository usa para espelhar cartões). */
@@ -90,18 +113,53 @@ class PerfilManager @Inject constructor(
     fun definirTemCasa(tem: Boolean) {
         temCasa = tem
         _contextosDisponiveis.value = calcularContextos()
-        if (!tem && _perfilDados.value == Perfil.CASA) {
+        if (_perfilDados.value !in _contextosDisponiveis.value) {
             mudarContexto(_contextosDisponiveis.value.first())
+        } else {
+            // Entrar/sair da casa muda o que a aba Pessoal enxerga
+            atualizarBaldes()
         }
     }
 
-    private fun calcularContextos(): List<Perfil> {
-        val doModo = when (_perfilAtivo.value) {
-            Perfil.MEI -> listOf(Perfil.MEI_PESSOAL, Perfil.MEI_NEGOCIO)
-            Perfil.CNPJ -> listOf(Perfil.CNPJ)
-            else -> listOf(Perfil.PESSOA_FISICA)
+    /**
+     * Balde de escrita de um lançamento pessoal conforme o dono escolhido.
+     * Sem casa não há [Dono.CASA] — tudo cai no balde privado.
+     */
+    fun baldeDe(dono: Dono): Perfil {
+        val contexto = _perfilDados.value
+        // Na empresa o "de quem" não se aplica: é sempre da empresa
+        if (contexto.ehEmpresa) return contexto
+        return if (dono == Dono.CASA && temCasa) Perfil.CASA else contexto
+    }
+
+    private fun atualizarBaldes() {
+        _baldesVisiveis.value = calcularBaldesVisiveis()
+        _baldesFinanceiros.value = calcularBaldesFinanceiros()
+    }
+
+    private fun calcularContextos(): List<Perfil> = when (_perfilAtivo.value) {
+        Perfil.MEI -> listOf(Perfil.MEI_PESSOAL, Perfil.MEI_NEGOCIO)
+        Perfil.CNPJ -> listOf(Perfil.CNPJ)
+        else -> listOf(Perfil.PESSOA_FISICA)
+    }
+
+    /**
+     * Baldes financeiros de um contexto QUALQUER (não só o ativo) — a Análise
+     * combina contextos e precisa expandir cada um. A empresa nunca mistura
+     * com a casa; o pessoal só a inclui quando o usuário está numa.
+     */
+    fun baldesDoContexto(contexto: Perfil): List<Perfil> =
+        if (contexto.ehEmpresa || !temCasa) listOf(contexto) else listOf(contexto, Perfil.CASA)
+
+    private fun calcularBaldesFinanceiros(): List<Perfil> = baldesDoContexto(_perfilDados.value)
+
+    private fun calcularBaldesVisiveis(): List<Perfil> {
+        val financeiros = calcularBaldesFinanceiros()
+        return if (temCasa && !_perfilDados.value.ehEmpresa) {
+            financeiros + Perfil.CASA_MEMBROS
+        } else {
+            financeiros
         }
-        return if (temCasa) doModo + Perfil.CASA else doModo
     }
 
     private fun lerPerfil(): Perfil {
@@ -117,9 +175,15 @@ class PerfilManager @Inject constructor(
             val contexto = runCatching { Perfil.valueOf(salvo) }.getOrNull()
             if (contexto != null && contexto in _contextosDisponiveis.value) return contexto
         }
-        // Migração dos prefs antigos (perfil CASA / aba do MEI)
+        // Migração dos prefs antigos (perfil/aba CASA — hoje a Casa não é mais
+        // uma aba, virou o dono padrão dos lançamentos do contexto pessoal —
+        // e a aba do MEI)
+        if (salvo == Perfil.CASA.name) {
+            return if (_perfilAtivo.value == Perfil.MEI) Perfil.MEI_PESSOAL else Perfil.PESSOA_FISICA
+        }
         return when (prefs.getString(CHAVE_PERFIL, null)) {
-            Perfil.CASA.name -> if (temCasa) Perfil.CASA else Perfil.PESSOA_FISICA
+            Perfil.CASA.name ->
+                if (_perfilAtivo.value == Perfil.MEI) Perfil.MEI_PESSOAL else Perfil.PESSOA_FISICA
             Perfil.MEI.name ->
                 if (prefs.getString(CHAVE_CONTEXTO_MEI_LEGADO, null) == "NEGOCIO") {
                     Perfil.MEI_NEGOCIO

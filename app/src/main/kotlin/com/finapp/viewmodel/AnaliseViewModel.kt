@@ -99,21 +99,21 @@ data class Insight(
 @HiltViewModel
 class AnaliseViewModel @Inject constructor(
     private val repository: FinanceRepository,
-    perfilManager: PerfilManager
+    private val perfilManager: PerfilManager
 ) : ViewModel() {
 
-    /** Contextos que o usuário pode combinar (Pessoal / Empresa / Casa). */
+    /** Contextos que o usuário pode combinar (Pessoal / Empresa). */
     val contextos: StateFlow<List<Perfil>> = perfilManager.contextosDisponiveis
 
     /**
      * Seleção explícita de contextos. Vazia = seguir o contexto ativo da
      * Home (comportamento padrão); ao tocar nos chips o usuário combina
-     * dois ou todos os contextos num gráfico só.
+     * os contextos num gráfico só.
      */
     private val _selecaoContextos = MutableStateFlow<Set<Perfil>>(emptySet())
 
-    /** Baldes efetivos dos gráficos (nunca vazio; ignora contexto que saiu do modo). */
-    val baldes: StateFlow<Set<Perfil>> =
+    /** Contextos efetivos dos chips (nunca vazio; ignora contexto que saiu do modo). */
+    val contextosSelecionados: StateFlow<Set<Perfil>> =
         combine(
             _selecaoContextos,
             perfilManager.perfilDados,
@@ -127,6 +127,20 @@ class AnaliseViewModel @Inject constructor(
             setOf(perfilManager.perfilDados.value)
         )
 
+    /**
+     * Baldes efetivos dos gráficos: cada contexto selecionado expandido nos
+     * seus baldes. Pessoal traz junto a Casa — as duas viraram uma coisa só.
+     */
+    val baldes: StateFlow<Set<Perfil>> = contextosSelecionados
+        .map { contextos ->
+            contextos.flatMapTo(mutableSetOf()) { perfilManager.baldesDoContexto(it) }
+        }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            perfilManager.baldesDoContexto(perfilManager.perfilDados.value).toSet()
+        )
+
     init {
         // Trocar a aba ativa na Home desfaz a combinação: a Análise volta a
         // seguir o contexto da aba (senão a seleção antiga "vaza" — Pessoal
@@ -138,7 +152,7 @@ class AnaliseViewModel @Inject constructor(
 
     /** Liga/desliga um contexto nos gráficos (sempre sobra pelo menos um). */
     fun alternarContexto(contexto: Perfil) {
-        val atual = baldes.value
+        val atual = contextosSelecionados.value
         _selecaoContextos.value = if (contexto in atual) {
             val nova = atual - contexto
             if (nova.isEmpty()) return

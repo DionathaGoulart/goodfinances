@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.finapp.data.PerfilManager
 import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Categoria
+import com.finapp.data.db.entities.Dono
 import com.finapp.data.db.entities.Frequencia
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
@@ -23,7 +24,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import com.finapp.utils.mesclarListas
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.util.UUID
@@ -33,16 +36,27 @@ import javax.inject.Inject
 @HiltViewModel
 class TransacaoViewModel @Inject constructor(
     private val repository: FinanceRepository,
-    perfilManager: PerfilManager,
+    private val perfilManager: PerfilManager,
     private val casaManager: CasaManager,
     private val notaFiscalManager: NotaFiscalManager
 ) : ViewModel() {
 
-    /** Balde de dados efetivo (no MEI, acompanha a aba Pessoal/Negócio). */
+    /** Balde PRIVADO do contexto (no MEI, acompanha a aba Pessoal/Negócio). */
     val perfil: StateFlow<Perfil> = perfilManager.perfilDados
 
-    /** Abas/contextos disponíveis (Pessoal/Empresa/Casa) — destino da transferência. */
+    /** Abas/contextos disponíveis (Pessoal/Empresa) — destino da transferência. */
     val contextos: StateFlow<List<Perfil>> = perfilManager.contextosDisponiveis
+
+    /** Baldes financeiros do contexto — origem das listas do modal. */
+    private val baldes: StateFlow<List<Perfil>> = perfilManager.baldesFinanceiros
+
+    /**
+     * Donos oferecidos no modal. Vazio = não há o que escolher (fora de uma
+     * casa, ou dentro da empresa) e o seletor some.
+     */
+    val donos: StateFlow<List<Dono>> = baldes
+        .map { if (Perfil.CASA in it) listOf(Dono.CASA, Dono.EU) else emptyList() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _mensagens = MutableSharedFlow<String>()
     val mensagens: SharedFlow<String> = _mensagens
@@ -50,18 +64,25 @@ class TransacaoViewModel @Inject constructor(
     /** Última transação deletada, para o "desfazer" do snackbar. */
     private var ultimaDeletada: Transacao? = null
 
-    /** Categorias ativas por tipo — alimentam o dropdown do modal. */
-    val categoriasGanho: StateFlow<List<Categoria>> = perfil
-        .flatMapLatest { repository.observarCategoriasAtivas(it, TipoTransacao.GANHO) }
+    /**
+     * Categorias ativas por tipo — dropdown do modal. Unificadas entre os
+     * baldes do contexto (categoria é referenciada por NOME, então homônimas
+     * de Pessoal e Casa são a mesma opção para quem lança).
+     */
+    val categoriasGanho: StateFlow<List<Categoria>> = categoriasUnificadas(TipoTransacao.GANHO)
+
+    val categoriasGasto: StateFlow<List<Categoria>> = categoriasUnificadas(TipoTransacao.GASTO)
+
+    private fun categoriasUnificadas(tipo: TipoTransacao): StateFlow<List<Categoria>> = baldes
+        .flatMapLatest { b ->
+            mesclarListas(b) { repository.observarCategoriasAtivas(it, tipo) }
+                .map { lista -> lista.distinctBy { it.nome }.sortedBy { it.nome } }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val categoriasGasto: StateFlow<List<Categoria>> = perfil
-        .flatMapLatest { repository.observarCategoriasAtivas(it, TipoTransacao.GASTO) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /** Cartões de crédito do perfil — alimentam o seletor do modal. */
-    val cartoes: StateFlow<List<Cartao>> = perfil
-        .flatMapLatest { repository.observarCartoes(it) }
+    /** Cartões de crédito — alimentam o seletor do modal (globais, ver Etapa 2). */
+    val cartoes: StateFlow<List<Cartao>> = baldes
+        .flatMapLatest { b -> mesclarListas(b) { repository.observarCartoes(it) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // ---------- CRUD ----------
@@ -77,6 +98,10 @@ class TransacaoViewModel @Inject constructor(
      * parcela); a nota fiscal fica só na primeira. [lancarProLaborePessoal]
      * (modo misto, aba Empresa): espelha o gasto como ganho no balde
      * Pessoal — o pró-labore do dono.
+     *
+     * [dono] decide o BALDE: [Dono.CASA] (padrão) grava no balde compartilhado
+     * — todo membro vê; [Dono.EU] grava no balde privado. Fora de uma casa e
+     * dentro da empresa o parâmetro é ignorado (só existe um destino).
      */
     fun adicionarTransacao(
         valorCentavos: Long,
@@ -90,15 +115,17 @@ class TransacaoViewModel @Inject constructor(
         parcelas: Int = 1,
         lancarProLaborePessoal: Boolean = false,
         cartao: Cartao? = null,
-        aReceber: Boolean = false
+        aReceber: Boolean = false,
+        dono: Dono = Dono.CASA
     ) {
         if (valorCentavos <= 0L) {
             emitir("Informe um valor maior que zero")
             return
         }
         viewModelScope.launch {
-            // No perfil Casa, registra quem lançou (aparece para os outros membros)
-            val usuario = casaManager.usuario.value.takeIf { perfil.value == Perfil.CASA }
+            val destino = perfilManager.baldeDe(dono)
+            // No balde Casa, registra quem lançou (aparece para os outros membros)
+            val usuario = casaManager.usuario.value.takeIf { destino == Perfil.CASA }
             val autor = usuario?.nome.orEmpty()
             val autorUid = usuario?.uid.orEmpty()
             val totalParcelas = parcelas.coerceIn(1, 24)
@@ -112,7 +139,7 @@ class TransacaoViewModel @Inject constructor(
             if (ehGastoFrequente) {
                 // Mesmo nome já ativo = seria tudo em dobro nos meses seguintes
                 val repetida = descricao.trim().isNotBlank() &&
-                    repository.listarRecorrentesAtivas(perfil.value).any {
+                    repository.listarRecorrentesAtivas(destino).any {
                         it.tipo == TipoTransacao.GASTO &&
                             it.descricao.equals(descricao.trim(), ignoreCase = true)
                     }
@@ -132,7 +159,7 @@ class TransacaoViewModel @Inject constructor(
                         frequencia = Frequencia.MENSAL,
                         proximoLancamento = data,
                         diaMensal = data.dayOfMonth,
-                        perfil = perfil.value,
+                        perfil = destino,
                         terminaEm = repetirAte
                     )
                     repository.inserirRecorrente(recorrente)
@@ -185,7 +212,7 @@ class TransacaoViewModel @Inject constructor(
                             categoria = categoria,
                             descricao = descricaoFinal,
                             data = dataLancamento,
-                            perfil = perfil.value,
+                            perfil = destino,
                             criadoPor = autor,
                             criadoPorUid = autorUid,
                             notaFiscal = if (indice == 0) notaFiscal else "",
@@ -215,7 +242,7 @@ class TransacaoViewModel @Inject constructor(
                             // Dia da transação original: plusMonths pode ter
                             // truncado (31/01 -> 28/02) e perderia a intenção
                             diaMensal = data.dayOfMonth,
-                            perfil = perfil.value,
+                            perfil = destino,
                             terminaEm = repetirAte
                         )
                     )
@@ -363,12 +390,14 @@ class TransacaoViewModel @Inject constructor(
      * Categoria mais usada em lançamentos com descrição parecida — alimenta
      * o chip de sugestão do modal (null = sem histórico útil).
      */
-    suspend fun sugerirCategoria(descricao: String, tipo: TipoTransacao): String? =
-        if (descricao.trim().length < 3) {
-            null
-        } else {
-            repository.sugerirCategoria(perfil.value, tipo, descricao)
+    suspend fun sugerirCategoria(descricao: String, tipo: TipoTransacao): String? {
+        if (descricao.trim().length < 3) return null
+        // Varre os baldes do contexto: "Mercado" pode ter virado hábito na
+        // Casa e o palpite tem de valer para o lançamento pessoal também
+        return baldes.value.firstNotNullOfOrNull {
+            repository.sugerirCategoria(it, tipo, descricao)
         }
+    }
 
     /** Espelho do pró-labore no balde Pessoal do modo misto. */
     private suspend fun lancarProLabore(

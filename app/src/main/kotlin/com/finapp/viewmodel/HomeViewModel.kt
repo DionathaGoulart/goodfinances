@@ -10,9 +10,11 @@ import com.finapp.data.EstadoDownload
 import com.finapp.data.OnibusManager
 import com.finapp.data.PerfilManager
 import com.finapp.data.db.entities.Cartao
+import com.finapp.data.db.entities.FiltroDono
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
+import com.finapp.data.db.entities.atendeFiltro
 import com.finapp.data.db.entities.podeSerEditadaPor
 import com.finapp.data.io.BackupManager
 import com.finapp.data.io.NotaFiscalManager
@@ -20,6 +22,8 @@ import com.finapp.data.repository.FinanceRepository
 import com.finapp.data.sync.CasaManager
 import com.finapp.data.sync.SyncManager
 import com.finapp.utils.fluxoDataAtual
+import com.finapp.utils.mesclarListas
+import com.finapp.utils.somarBaldes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -91,11 +95,30 @@ class HomeViewModel @Inject constructor(
             compartilhar && casa != null
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    /** Abas de contexto da Home (Pessoal | Empresa | Casa, conforme o modo). */
+    /** Abas de contexto da Home (Pessoal | Empresa, conforme o modo). */
     val contextos: StateFlow<List<Perfil>> = perfilManager.contextosDisponiveis
 
-    /** Contexto/balde ativo — todas as queries seguem este flow. */
+    /** Contexto/balde privado ativo — âncora de escrita e das telas mono-balde. */
     val perfilDados: StateFlow<Perfil> = perfilManager.perfilDados
+
+    /** Baldes lidos pelas listas (pessoal + casa + espelho dos membros). */
+    private val baldesVisiveis: StateFlow<List<Perfil>> = perfilManager.baldesVisiveis
+
+    /** Baldes que entram em saldo/somas — sem o espelho dos membros. */
+    private val baldesFinanceiros: StateFlow<List<Perfil>> = perfilManager.baldesFinanceiros
+
+    /** Filtro "de quem" da lista (Tudo por padrão). */
+    private val _filtroDono = MutableStateFlow<FiltroDono>(FiltroDono.Tudo)
+    val filtroDono: StateFlow<FiltroDono> = _filtroDono.asStateFlow()
+
+    fun definirFiltroDono(filtro: FiltroDono) {
+        _filtroDono.value = filtro
+    }
+
+    /** Trocar de contexto/aba zera o filtro (o de Pessoal não faz sentido na Empresa). */
+    private fun resetarFiltroDono() {
+        _filtroDono.value = FiltroDono.Tudo
+    }
 
     /** Mensagens transitórias para a UI (toasts/snackbars). */
     private val _mensagens = MutableSharedFlow<String>()
@@ -114,55 +137,96 @@ class HomeViewModel @Inject constructor(
         combine(_mesSelecionado, dataAtual) { mes, hoje -> mes == YearMonth.from(hoje) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
-    val saldoTotal: StateFlow<Long> = perfilDados
-        .flatMapLatest { repository.observarSaldoTotal(it) }
+    val saldoTotal: StateFlow<Long> = baldesFinanceiros
+        .flatMapLatest { baldes -> somarBaldes(baldes) { repository.observarSaldoTotal(it) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     /** Gastos atrasados (pendência com vencimento passado, qualquer mês). */
     val atrasado: StateFlow<Long> =
-        combine(perfilDados, dataAtual) { p, hoje -> p to hoje }
-            .flatMapLatest { (p, hoje) -> repository.observarAtrasado(p, hoje) }
+        combine(baldesFinanceiros, dataAtual) { b, hoje -> b to hoje }
+            .flatMapLatest { (b, hoje) ->
+                somarBaldes(b) { repository.observarAtrasado(it, hoje) }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     /** A pagar no mês visualizado (gastos pendentes, centavos). */
     val aPagarMes: StateFlow<Long> =
-        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
-            .flatMapLatest { (p, mes) ->
-                repository.observarPendentePorTipo(
-                    p, TipoTransacao.GASTO, mes.atDay(1), mes.atEndOfMonth()
-                )
+        combine(baldesFinanceiros, _mesSelecionado) { b, mes -> b to mes }
+            .flatMapLatest { (b, mes) ->
+                somarBaldes(b) {
+                    repository.observarPendentePorTipo(
+                        it, TipoTransacao.GASTO, mes.atDay(1), mes.atEndOfMonth()
+                    )
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     /** A receber no mês visualizado (ganhos pendentes: salário, esperados). */
     val aReceberMes: StateFlow<Long> =
-        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
-            .flatMapLatest { (p, mes) ->
-                repository.observarPendentePorTipo(
-                    p, TipoTransacao.GANHO, mes.atDay(1), mes.atEndOfMonth()
-                )
+        combine(baldesFinanceiros, _mesSelecionado) { b, mes -> b to mes }
+            .flatMapLatest { (b, mes) ->
+                somarBaldes(b) {
+                    repository.observarPendentePorTipo(
+                        it, TipoTransacao.GANHO, mes.atDay(1), mes.atEndOfMonth()
+                    )
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     val ganhosMes: StateFlow<Long> =
-        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
-            .flatMapLatest { (p, mes) ->
-                repository.observarGanhos(p, mes.atDay(1), mes.atEndOfMonth())
+        combine(baldesFinanceiros, _mesSelecionado) { b, mes -> b to mes }
+            .flatMapLatest { (b, mes) ->
+                somarBaldes(b) {
+                    repository.observarGanhos(it, mes.atDay(1), mes.atEndOfMonth())
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     val gastosMes: StateFlow<Long> =
-        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
-            .flatMapLatest { (p, mes) ->
-                repository.observarGastos(p, mes.atDay(1), mes.atEndOfMonth())
+        combine(baldesFinanceiros, _mesSelecionado) { b, mes -> b to mes }
+            .flatMapLatest { (b, mes) ->
+                somarBaldes(b) {
+                    repository.observarGastos(it, mes.atDay(1), mes.atEndOfMonth())
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
-    /** Transações do mês visualizado (todas, ordenadas da mais recente). */
+    /**
+     * Transações do mês visualizado, já unificadas (pessoal + casa + membros)
+     * e passadas pelo filtro "de quem". Cada balde chega ordenado por conta
+     * própria — o merge precisa reordenar.
+     */
     val transacoesDoMes: StateFlow<List<Transacao>> =
-        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
-            .flatMapLatest { (p, mes) ->
-                repository.observarTransacoesPeriodo(p, mes.atDay(1), mes.atEndOfMonth())
+        combine(baldesVisiveis, _mesSelecionado, _filtroDono) { b, mes, filtro ->
+            Triple(b, mes, filtro)
+        }
+            .flatMapLatest { (b, mes, filtro) ->
+                mesclarListas(b) {
+                    repository.observarTransacoesPeriodo(it, mes.atDay(1), mes.atEndOfMonth())
+                }.map { lista ->
+                    lista.filter { it.atendeFiltro(filtro) }
+                        .sortedWith(compareByDescending<Transacao> { it.data }.thenByDescending { it.id })
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Membros da casa que compartilham os lançamentos pessoais — viram chips
+     * de filtro. Sai do próprio espelho: quem não compartilha não aparece.
+     */
+    val membrosComLancamentos: StateFlow<List<FiltroDono.Membro>> =
+        baldesVisiveis
+            .flatMapLatest { b ->
+                if (Perfil.CASA_MEMBROS !in b) {
+                    flowOf(emptyList())
+                } else {
+                    repository.observarTransacoes(Perfil.CASA_MEMBROS).map { lista ->
+                        lista.filter { it.criadoPorUid.isNotBlank() }
+                            .distinctBy { it.criadoPorUid }
+                            .map { FiltroDono.Membro(it.criadoPorUid, it.criadoPor.ifBlank { "Membro" }) }
+                            .sortedBy { it.nome }
+                    }
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -180,27 +244,33 @@ class HomeViewModel @Inject constructor(
      * Menos de 2 caracteres não busca (evita varrer tudo a cada tecla).
      */
     val resultadosBusca: StateFlow<List<Transacao>> =
-        combine(perfilDados, _termoBusca) { p, termo -> p to termo.trim() }
-            .flatMapLatest { (p, termo) ->
+        combine(baldesVisiveis, _termoBusca) { b, termo -> b to termo.trim() }
+            .flatMapLatest { (b, termo) ->
                 if (termo.length < 2) {
                     flowOf(emptyList())
                 } else {
-                    repository.buscarTransacoes(p, termo)
+                    mesclarListas(b) { repository.buscarTransacoes(it, termo) }
+                        .map { lista ->
+                            lista.sortedWith(
+                                compareByDescending<Transacao> { it.data }
+                                    .thenByDescending { it.id }
+                            )
+                        }
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Cartões do contexto — nomes/cores dos grupos de crédito da lista. */
-    val cartoes: StateFlow<List<Cartao>> = perfilDados
-        .flatMapLatest { repository.observarCartoes(it) }
+    val cartoes: StateFlow<List<Cartao>> = baldesVisiveis
+        .flatMapLatest { b -> mesclarListas(b) { repository.observarCartoes(it) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * Cor de cada categoria (nome -> hex), incluindo arquivadas — o ícone das
      * linhas do histórico usa a cor da categoria para reconhecimento rápido.
      */
-    val coresCategorias: StateFlow<Map<String, String>> = perfilDados
-        .flatMapLatest { repository.observarCategorias(it) }
+    val coresCategorias: StateFlow<Map<String, String>> = baldesVisiveis
+        .flatMapLatest { b -> mesclarListas(b) { repository.observarCategorias(it) } }
         .map { categorias -> categorias.associate { it.nome to it.cor } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
@@ -209,19 +279,31 @@ class HomeViewModel @Inject constructor(
      * gasto delas. Null quando nenhuma categoria tem orçamento — o card some.
      */
     val orcamentoMes: StateFlow<OrcamentoMes?> =
-        combine(perfilDados, _mesSelecionado) { p, mes -> p to mes }
-            .flatMapLatest { (p, mes) ->
+        combine(baldesFinanceiros, _mesSelecionado) { b, mes -> b to mes }
+            .flatMapLatest { (b, mes) ->
+                // Cada balde traz o próprio teto: o "Mercado" da Casa é um
+                // orçamento à parte do "Mercado" pessoal, e os dois somam
                 combine(
-                    repository.observarCategorias(p),
-                    repository.observarGastosPorCategoria(p, mes.atDay(1), mes.atEndOfMonth())
+                    mesclarListas(b) { repository.observarCategorias(it) },
+                    mesclarListas(b) {
+                        repository.observarGastosPorCategoria(
+                            it, mes.atDay(1), mes.atEndOfMonth()
+                        )
+                    }
                 ) { categorias, somas ->
                     val comTeto = categorias.filter { !it.arquivada && it.orcamentoMensal > 0L }
                     if (comTeto.isEmpty()) {
                         null
                     } else {
-                        val gastoPorNome = somas.associate { it.categoria to it.total }
+                        // Nomes repetem entre baldes — soma tudo do mesmo nome
+                        val gastoPorNome = somas
+                            .groupBy { it.categoria }
+                            .mapValues { (_, lista) -> lista.sumOf { it.total } }
                         OrcamentoMes(
-                            gasto = comTeto.sumOf { gastoPorNome[it.nome] ?: 0L },
+                            // O gasto do nome já vem somado de todos os baldes:
+                            // contar uma vez por NOME (não por linha) evita dobrar
+                            gasto = comTeto.distinctBy { it.nome }
+                                .sumOf { gastoPorNome[it.nome] ?: 0L },
                             teto = comTeto.sumOf { it.orcamentoMensal }
                         )
                     }
@@ -281,10 +363,10 @@ class HomeViewModel @Inject constructor(
      * anterior teve movimento e o card não foi dispensado.
      */
     val resumoMesAnterior: StateFlow<ResumoMesAnterior?> =
-        combine(perfilDados, dataAtual, _resumoDispensado) { p, hoje, dispensado ->
-            Triple(p, hoje, dispensado)
+        combine(baldesFinanceiros, dataAtual, _resumoDispensado) { b, hoje, dispensado ->
+            Triple(b, hoje, dispensado)
         }
-            .flatMapLatest { (p, hoje, dispensado) ->
+            .flatMapLatest { (b, hoje, dispensado) ->
                 val mesAnterior = YearMonth.from(hoje).minusMonths(1)
                 if (hoje.dayOfMonth > DIAS_MOSTRANDO_RESUMO ||
                     dispensado == mesAnterior.toString()
@@ -292,8 +374,16 @@ class HomeViewModel @Inject constructor(
                     flowOf(null)
                 } else {
                     combine(
-                        repository.observarGanhos(p, mesAnterior.atDay(1), mesAnterior.atEndOfMonth()),
-                        repository.observarGastos(p, mesAnterior.atDay(1), mesAnterior.atEndOfMonth())
+                        somarBaldes(b) {
+                            repository.observarGanhos(
+                                it, mesAnterior.atDay(1), mesAnterior.atEndOfMonth()
+                            )
+                        },
+                        somarBaldes(b) {
+                            repository.observarGastos(
+                                it, mesAnterior.atDay(1), mesAnterior.atEndOfMonth()
+                            )
+                        }
                     ) { ganhos, gastos ->
                         if (ganhos == 0L && gastos == 0L) null
                         else ResumoMesAnterior(mesAnterior, ganhos, gastos)
@@ -352,8 +442,11 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** Troca a aba ativa (Pessoal / Empresa / Casa). */
-    fun mudarContexto(contexto: Perfil) = perfilManager.mudarContexto(contexto)
+    /** Troca a aba ativa (Pessoal / Empresa) e volta o filtro para "Tudo". */
+    fun mudarContexto(contexto: Perfil) {
+        perfilManager.mudarContexto(contexto)
+        resetarFiltroDono()
+    }
 
     /** Na Casa, só o autor do lançamento pode editar/apagar. */
     fun podeEditar(transacao: Transacao): Boolean =
