@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -64,17 +66,18 @@ import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.finapp.data.EstadoDownload
+import com.finapp.data.db.entities.FiltroDono
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.db.entities.dataEfetiva
 import com.finapp.data.db.entities.ehEmpresa
+import com.finapp.data.db.entities.rotuloDono
 import com.finapp.ui.component.CartaoGrupoCard
 import com.finapp.ui.component.LucroCard
 import com.finapp.ui.component.SaldoCard
 import com.finapp.ui.component.TransacaoLinha
 import com.finapp.ui.component.agruparPorCartao
 import com.finapp.ui.component.TransacaoModal
-import com.finapp.ui.component.VisaoMembros
 import com.finapp.ui.theme.GreenPrimary
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
@@ -125,9 +128,6 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         if (abrirModalInicial) onLancamentoConsumido()
     }
-    // Sub-visão da Casa: carteira conjunta ("Da casa") ou finanças dos membros
-    var visaoMembros by rememberSaveable { mutableStateOf(false) }
-    val mostrandoMembros = perfilDados == Perfil.CASA && visaoMembros
     // Seletor de mês/ano (navegação do histórico)
     var mesPickerAberto by remember { mutableStateOf(false) }
     // Busca por descrição/categoria (lupa na barra do mês)
@@ -199,11 +199,12 @@ fun HomeScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
-                // Nuvem indica sync ativo: da Casa ou dos dados pessoais
-                val sincronizando = if (perfilDados == Perfil.CASA) {
-                    casaConectada
-                } else {
+                // Nuvem indica sync ativo: da Casa (a lista pessoal já a
+                // inclui) ou dos dados pessoais entre aparelhos
+                val sincronizando = if (perfilDados.ehEmpresa) {
                     syncPessoalAtivo
+                } else {
+                    casaConectada || syncPessoalAtivo
                 }
                 if (sincronizando) {
                     Icon(
@@ -223,7 +224,7 @@ fun HomeScreen(
                 )
             }
 
-            // Abas de contexto: Pessoal | Empresa | Casa (conforme o modo).
+            // Abas de contexto: Pessoal | Empresa (conforme o modo).
             // Chips leves em vez do TabRow do Material (menos peso visual).
             if (contextos.size > 1) {
                 Spacer(modifier = Modifier.height(12.dp))
@@ -238,29 +239,34 @@ fun HomeScreen(
                 }
             }
 
-            // Casa tem duas visões: carteira conjunta e finanças dos membros
-            if (perfilDados == Perfil.CASA) {
+            // Filtro "de quem": Pessoal e Casa são uma lista só, e estes chips
+            // recortam ela. Só existe numa casa e fora da empresa — sem casa
+            // não há de quem separar.
+            val filtroDono by viewModel.filtroDono.collectAsStateWithLifecycle()
+            val membros by viewModel.membrosComLancamentos.collectAsStateWithLifecycle()
+            if (casaConectada && !perfilDados.ehEmpresa) {
                 Spacer(modifier = Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = !visaoMembros,
-                        onClick = { visaoMembros = false },
-                        label = { Text("Da casa") }
-                    )
-                    FilterChip(
-                        selected = visaoMembros,
-                        onClick = { visaoMembros = true },
-                        label = { Text("Membros") }
-                    )
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val opcoes: List<Pair<FiltroDono, String>> = buildList {
+                        add(FiltroDono.Tudo to "Tudo")
+                        add(FiltroDono.Casa to "Casa")
+                        add(FiltroDono.Eu to "Meu")
+                        membros.forEach { add(it to it.nome.substringBefore(' ')) }
+                    }
+                    opcoes.forEach { (opcao, rotulo) ->
+                        FilterChip(
+                            selected = filtroDono == opcao,
+                            onClick = { viewModel.definirFiltroDono(opcao) },
+                            label = { Text(rotulo, maxLines = 1) }
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-
-            if (mostrandoMembros) {
-                VisaoMembros()
-                return@Column
-            }
 
             // Navegação de mês (ou campo de busca, quando a lupa está ativa)
             if (buscando) {
@@ -318,6 +324,9 @@ fun HomeScreen(
                     podeEsconder = podeEsconder,
                     corFundo = corFundo,
                     corCategoria = corCategoria,
+                    // "Casa" / "Meu" / nome do membro — com as listas unidas,
+                    // é o selo que diz de quem é cada linha
+                    rotuloDono = transacao.rotuloDono(casaConectada),
                     // A data vem do cabeçalho do dia (ou do card do cartão)
                     mostrarData = false,
                     onEditar = {

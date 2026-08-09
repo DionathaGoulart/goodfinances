@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.db.entities.dataEfetiva
@@ -61,6 +63,8 @@ fun TransacaoItem(
     mostrarData: Boolean = true,
     corFundo: Color? = null,
     corCategoria: Color? = null,
+    /** Selo "de quem é" (Casa / Meu / nome do membro). Vazio = sem selo. */
+    rotuloDono: String = "",
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     onClickLabel: String? = null,
@@ -121,14 +125,26 @@ fun TransacaoItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            // No perfil Casa mostra quem lançou (primeiro nome)
-            val autor = transacao.criadoPor.substringBefore(' ')
+            // Quem lançou (primeiro nome). No espelho dos membros o selo de
+            // dono já traz o nome — repetir viraria "Fulana · por Fulana".
+            val autor = if (transacao.perfil == Perfil.CASA_MEMBROS) {
+                ""
+            } else {
+                transacao.criadoPor.substringBefore(' ')
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Selo "de quem é" — só aparece quando há o que distinguir
+                if (rotuloDono.isNotBlank()) {
+                    SeloDono(rotulo = rotuloDono)
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
                 Text(
                     text = if (autor.isBlank()) transacao.categoria
                     else "${transacao.categoria} · por $autor",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (transacao.notaFiscal.isNotBlank()) {
                     Spacer(modifier = Modifier.width(4.dp))
@@ -272,6 +288,7 @@ fun TransacaoLinha(
     mostrarData: Boolean = true,
     corFundo: Color? = null,
     corCategoria: Color? = null,
+    rotuloDono: String = "",
     onAlternarPago: ((Transacao) -> Unit)? = null,
     onBloqueado: () -> Unit = {}
 ) {
@@ -284,6 +301,7 @@ fun TransacaoLinha(
             mostrarData = mostrarData,
             corFundo = corFundo,
             corCategoria = corCategoria,
+            rotuloDono = rotuloDono,
             onClick = { if (podeEditar) onEditar(transacao) else onBloqueado() },
             onClickLabel = if (podeEditar) "Editar" else "Ver opções",
             onLongClick = if (temMenu) {
@@ -377,4 +395,24 @@ fun TransacaoLinha(
             }
         }
     }
+}
+
+/**
+ * Selo compacto de "de quem é" (Casa / Meu / nome do membro). Fica antes da
+ * categoria na linha do histórico: com Pessoal e Casa na mesma lista, é ele
+ * que responde "esse gasto é de quem?" sem precisar abrir a transação.
+ */
+@Composable
+private fun SeloDono(rotulo: String) {
+    Text(
+        text = rotulo,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 5.dp, vertical = 1.dp)
+    )
 }

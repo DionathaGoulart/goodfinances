@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -22,6 +23,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -33,6 +36,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.finapp.data.db.entities.Cartao
+import com.finapp.data.db.entities.Dono
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
@@ -138,6 +143,19 @@ fun TransacaoModal(
     var pagamentoCredito by remember { mutableStateOf(false) }
     var cartaoSelecionado by remember { mutableStateOf<Cartao?>(null) }
     val cartoes by viewModel.cartoes.collectAsStateWithLifecycle()
+
+    // De quem é o lançamento. Padrão "Da casa" — é o caso comum de quem
+    // divide as contas; o balde privado é a exceção consciente.
+    val donos by viewModel.donos.collectAsStateWithLifecycle()
+    var dono by remember {
+        mutableStateOf(
+            if (transacaoParaEditar == null || transacaoParaEditar.perfil == Perfil.CASA) {
+                Dono.CASA
+            } else {
+                Dono.EU
+            }
+        )
+    }
 
     var erroValor by remember { mutableStateOf<String?>(null) }
     var erroCategoria by remember { mutableStateOf<String?>(null) }
@@ -314,6 +332,58 @@ fun TransacaoModal(
                             )
                         ) {
                             Text(if (opcao == TipoTransacao.GANHO) "Ganho" else "Gasto")
+                        }
+                    }
+                }
+            }
+
+            // ---------- De quem é (Casa / Meu) ----------
+            // Só aparece numa casa e fora da empresa — sem isso não há escolha.
+            // A opção decide o BALDE: Casa vai para todos os membros, Meu fica
+            // privado. Em EDIÇÃO é só informativo: mudar de dono é mudar de
+            // balde (e do que sincroniza), então é apagar e lançar de novo.
+            if (donos.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                if (edicao) {
+                    Text(
+                        text = "Lançamento ${if (dono == Dono.CASA) "da Casa" else "seu (privado)"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        donos.forEach { opcao ->
+                            val selecionado = dono == opcao
+                            FilterChip(
+                                selected = selecionado,
+                                onClick = { dono = opcao },
+                                label = {
+                                    Text(
+                                        text = if (opcao == Dono.CASA) "Da casa" else "Só meu",
+                                        maxLines = 1
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = if (opcao == Dono.CASA) {
+                                            Icons.Filled.Home
+                                        } else {
+                                            Icons.Filled.Person
+                                        },
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .semantics {
+                                        role = Role.RadioButton
+                                        selected = selecionado
+                                    }
+                            )
                         }
                     }
                 }
@@ -1031,7 +1101,8 @@ fun TransacaoModal(
                                     parcelas = parcelas,
                                     lancarProLaborePessoal = proLabore,
                                     cartao = if (usaCredito) cartaoSelecionado else null,
-                                    aReceber = tipo == TipoTransacao.GANHO && aReceber
+                                    aReceber = tipo == TipoTransacao.GANHO && aReceber,
+                                    dono = dono
                                 )
                             }
                             onFechar()
