@@ -12,6 +12,8 @@ import com.finapp.data.db.entities.ehEmpresa
 import com.finapp.data.repository.FinanceRepository
 import com.finapp.utils.Intervalo
 import com.finapp.utils.PeriodoFiltro
+import com.finapp.utils.canonicoCartao
+import com.finapp.utils.cartaoPorCanonico
 import com.finapp.utils.fluxoDataAtual
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -170,17 +172,12 @@ class AnaliseViewModel @Inject constructor(
         combine(baldes.map(porBalde)) { listas -> listas.toList().flatten() }
 
     /**
-     * Chave canônica de um cartão: o espelho da Casa conta como o cartão
-     * pessoal original — juntando Pessoal + Casa, o mesmo cartão não vira
-     * duas fatias/faturas.
+     * Cartões em estado bruto (com espelhos): as compras da Casa apontam para
+     * o uuid do espelho, então resolver a que cartão pertencem exige vê-los.
+     * A canonicalização vive em `utils/Cartoes.kt`, compartilhada com a Home.
      */
-    private fun canonicoCartao(cartoes: List<Cartao>, uuid: String): String =
-        cartoes.firstOrNull { it.uuid == uuid }?.origemUuid?.takeIf { it.isNotBlank() }
-            ?: uuid
-
-    private fun cartaoPorCanonico(cartoes: List<Cartao>, uuid: String): Cartao? =
-        cartoes.firstOrNull { it.uuid == uuid }
-            ?: cartoes.firstOrNull { it.origemUuid == uuid }
+    private val cartoesGlobais: StateFlow<List<Cartao>> = repository.observarCartoesGlobais()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _filtro = MutableStateFlow(PeriodoFiltro.MES)
     val filtro: StateFlow<PeriodoFiltro> = _filtro.asStateFlow()
@@ -216,7 +213,7 @@ class AnaliseViewModel @Inject constructor(
                 combine(
                     mesclar(b) { repository.observarTransacoesPeriodo(it, i.inicio, i.fim) },
                     mesclar(b) { repository.observarCategorias(it) },
-                    mesclar(b) { repository.observarCartoes(it) }
+                    cartoesGlobais
                 ) { transacoes, categorias, cartoes ->
                     val doTipo = transacoes.filter {
                         it.tipo == t && it.categoria != FinanceRepository.NOME_TRANSFERENCIA
@@ -381,7 +378,7 @@ class AnaliseViewModel @Inject constructor(
             .flatMapLatest { b ->
                 combine(
                     mesclar(b) { repository.observarTransacoes(it) },
-                    mesclar(b) { repository.observarCartoes(it) }
+                    cartoesGlobais
                 ) { transacoes, cartoes ->
                     transacoes
                         .filter { it.cartaoUuid.isNotBlank() && !it.pago }

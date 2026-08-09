@@ -23,6 +23,17 @@ interface CartaoDao {
     @Query("SELECT * FROM Cartao WHERE perfil = :perfil AND deletado = 0 ORDER BY nome")
     suspend fun listarTodos(perfil: Perfil): List<Cartao>
 
+    /**
+     * TODOS os cartões vivos, de qualquer balde. O cartão não é mais dividido
+     * por contexto — cadastrou uma vez, serve para Pessoal, Casa e Empresa;
+     * o que fica separado é o GASTO, pelo balde da transação.
+     */
+    @Query("SELECT * FROM Cartao WHERE deletado = 0 ORDER BY nome")
+    fun observarGlobais(): Flow<List<Cartao>>
+
+    @Query("SELECT * FROM Cartao WHERE deletado = 0 ORDER BY nome")
+    suspend fun listarGlobais(): List<Cartao>
+
     /** Limpeza local (sair da casa) — NÃO usar em balde sincronizado ativo. */
     @Query("DELETE FROM Cartao WHERE perfil = :perfil")
     suspend fun deletarTodos(perfil: Perfil)

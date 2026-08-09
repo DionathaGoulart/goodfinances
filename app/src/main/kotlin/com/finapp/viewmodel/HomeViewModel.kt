@@ -260,9 +260,8 @@ class HomeViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Cartões do contexto — nomes/cores dos grupos de crédito da lista. */
-    val cartoes: StateFlow<List<Cartao>> = baldesVisiveis
-        .flatMapLatest { b -> mesclarListas(b) { repository.observarCartoes(it) } }
+    /** Cartões (globais) — nomes/cores dos grupos de crédito da lista. */
+    val cartoes: StateFlow<List<Cartao>> = repository.observarCartoesGlobais()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**

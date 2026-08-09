@@ -37,6 +37,8 @@ import com.finapp.data.db.entities.Transacao
 import com.finapp.ui.theme.GreenPrimary
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
+import com.finapp.utils.canonicoCartao
+import com.finapp.utils.cartaoPorCanonico
 import java.time.LocalDate
 
 /** Gastos de um cartão agrupados numa lista (nome, cor, total e itens). */
@@ -59,6 +61,11 @@ data class GrupoCartao(
  * Separa uma lista de transações em (grupos por cartão, avulsas).
  * Compras no crédito viram um [GrupoCartao] por cartão; débito/dinheiro
  * seguem soltas. Cartão apagado aparece como "Cartão".
+ *
+ * [cartoes] precisa vir BRUTO (com os espelhos da Casa): agrupa pelo uuid
+ * CANÔNICO, senão a mesma fatura do Nubank viraria dois grupos — um com as
+ * compras pessoais e outro com as da casa, que é justamente o que a visão
+ * unificada existe para evitar.
  */
 fun agruparPorCartao(
     transacoes: List<Transacao>,
@@ -66,9 +73,9 @@ fun agruparPorCartao(
 ): Pair<List<GrupoCartao>, List<Transacao>> {
     val (noCartao, avulsas) = transacoes.partition { it.cartaoUuid.isNotBlank() }
     val grupos = noCartao
-        .groupBy { it.cartaoUuid }
+        .groupBy { canonicoCartao(cartoes, it.cartaoUuid) }
         .map { (uuid, itens) ->
-            val cartao = cartoes.firstOrNull { it.uuid == uuid }
+            val cartao = cartaoPorCanonico(cartoes, uuid)
             GrupoCartao(
                 cartaoUuid = uuid,
                 nome = cartao?.nome ?: "Cartão",

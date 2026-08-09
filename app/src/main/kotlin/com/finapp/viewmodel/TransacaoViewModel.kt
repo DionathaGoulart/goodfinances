@@ -80,9 +80,12 @@ class TransacaoViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Cartões de crédito — alimentam o seletor do modal (globais, ver Etapa 2). */
-    val cartoes: StateFlow<List<Cartao>> = baldes
-        .flatMapLatest { b -> mesclarListas(b) { repository.observarCartoes(it) } }
+    /**
+     * Cartões do seletor do modal: GLOBAIS. Um cartão cadastrado serve para
+     * Pessoal, Casa e Empresa — o que separa o gasto é o balde da transação,
+     * não o do cartão.
+     */
+    val cartoes: StateFlow<List<Cartao>> = repository.observarCartoesParaEscolha()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // ---------- CRUD ----------

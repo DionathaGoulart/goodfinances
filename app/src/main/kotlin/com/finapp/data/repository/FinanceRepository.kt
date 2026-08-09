@@ -21,7 +21,9 @@ import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.db.entities.TransacaoRecorrente
+import com.finapp.utils.cartoesUnicos
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.YearMonth
 import javax.inject.Inject
@@ -459,8 +461,21 @@ class FinanceRepository @Inject constructor(
 
     // ---------- Cartões de crédito ----------
 
-    fun observarCartoes(perfil: Perfil): Flow<List<Cartao>> =
-        cartaoDao.observarTodos(perfil)
+    /**
+     * TODOS os cartões vivos, de qualquer balde, em estado BRUTO — espelhos
+     * inclusive. Cartão não pertence mais a um contexto: cadastrou uma vez,
+     * aparece em Pessoal, Casa e Empresa; o que continua separado é o gasto,
+     * pelo balde da transação.
+     *
+     * Vem bruto de propósito: resolver a que cartão pertence uma compra exige
+     * enxergar o espelho (uma compra lançada na Casa aponta para o uuid DELE).
+     * Para listar/escolher, passe por [com.finapp.utils.cartoesUnicos].
+     */
+    fun observarCartoesGlobais(): Flow<List<Cartao>> = cartaoDao.observarGlobais()
+
+    /** Já colapsados: um por cartão de verdade — para seletores e listagens. */
+    fun observarCartoesParaEscolha(): Flow<List<Cartao>> =
+        cartaoDao.observarGlobais().map { cartoesUnicos(it) }
 
     suspend fun listarCartoes(perfil: Perfil): List<Cartao> = cartaoDao.listarTodos(perfil)
 

@@ -132,6 +132,19 @@ class PerfilManager @Inject constructor(
         return if (dono == Dono.CASA && temCasa) Perfil.CASA else contexto
     }
 
+    /**
+     * Balde onde nascem as entidades GLOBAIS (hoje: cartões). Sempre o lado
+     * pessoal do modo, mesmo se o usuário estiver na aba Empresa: cartão não
+     * pertence mais a um contexto, e nascer no balde pessoal é o que o faz
+     * espelhar para a Casa e chegar aos outros membros. No modo só-empresa
+     * não existe lado pessoal, então fica na própria empresa.
+     */
+    fun baldeGlobal(): Perfil = when (_perfilAtivo.value) {
+        Perfil.MEI -> Perfil.MEI_PESSOAL
+        Perfil.CNPJ -> Perfil.CNPJ
+        else -> Perfil.PESSOA_FISICA
+    }
+
     private fun atualizarBaldes() {
         _baldesVisiveis.value = calcularBaldesVisiveis()
         _baldesFinanceiros.value = calcularBaldesFinanceiros()

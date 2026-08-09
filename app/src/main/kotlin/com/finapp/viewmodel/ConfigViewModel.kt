@@ -155,9 +155,12 @@ class ConfigViewModel @Inject constructor(
         .flatMapLatest { repository.observarRecorrentesAtivas(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Cartões de crédito do contexto ativo. */
-    val cartoes: StateFlow<List<Cartao>> = perfilDados
-        .flatMapLatest { repository.observarCartoes(it) }
+    /**
+     * Cartões de crédito — a lista é GLOBAL: um cartão cadastrado vale para
+     * Pessoal, Casa e Empresa, então a tela é a mesma em qualquer contexto.
+     * O balde onde a linha é gravada só decide o que sincroniza.
+     */
+    val cartoes: StateFlow<List<Cartao>> = repository.observarCartoesParaEscolha()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
@@ -429,7 +432,10 @@ class ConfigViewModel @Inject constructor(
                         diaFechamento = diaFechamento,
                         diaVencimento = diaVencimento,
                         cor = cor,
-                        perfil = perfilDados.value
+                        // Cartão é global: nasce no balde pessoal do modo
+                        // (mesmo criado na aba Empresa), que é o que o
+                        // espelha para a Casa e o leva aos outros membros
+                        perfil = perfilManager.baldeGlobal()
                     )
                 )
             }
