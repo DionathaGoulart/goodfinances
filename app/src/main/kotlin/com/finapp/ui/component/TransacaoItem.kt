@@ -144,7 +144,13 @@ fun TransacaoItem(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    // Cede espaço primeiro: numa linha cheia (selo + categoria
+                    // + autor + ícones + "Vence 20/07") é a categoria que pode
+                    // encurtar sem perder informação — o resto é curto e fixo.
+                    // fill = false para não empurrar os ícones para a direita
+                    // quando a linha está folgada.
+                    modifier = Modifier.weight(1f, fill = false)
                 )
                 if (transacao.notaFiscal.isNotBlank()) {
                     Spacer(modifier = Modifier.width(4.dp))
@@ -251,6 +257,7 @@ fun TransacaoItem(
             Text(
                 text = "$sinal ${Formatadores.moeda(transacao.valor)}",
                 style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
                 // Pendente fica esmaecido: ainda não saiu do saldo
                 // (alpha alto o bastante para manter contraste legível;
                 // o ícone de relógio já sinaliza a pendência)
