@@ -53,6 +53,21 @@ data class ResumoMesAnterior(
     val saldo: Long get() = ganhos - gastos
 }
 
+/**
+ * Quanto está previsto entrar e sair num mês à frente, em centavos. Sai das
+ * pendências JÁ materializadas (recorrência mensal se materializa 12 meses
+ * adiante e parcela de cartão nasce no mês da fatura), então não é chute:
+ * é o que está agendado.
+ */
+data class MesPrevisto(
+    val mes: YearMonth,
+    val aPagar: Long,
+    val aReceber: Long
+) {
+    /** Sobra prevista do mês (negativa = o previsto não cobre as contas). */
+    val saldo: Long get() = aReceber - aPagar
+}
+
 /** Soma dos orçamentos por categoria vs gasto do mês (centavos). */
 data class OrcamentoMes(
     val gasto: Long,
@@ -225,6 +240,39 @@ class HomeViewModel @Inject constructor(
                             .distinctBy { it.criadoPorUid }
                             .map { FiltroDono.Membro(it.criadoPorUid, it.criadoPor.ifBlank { "Membro" }) }
                             .sortedBy { it.nome }
+                    }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * O que já está agendado para os próximos meses (incluindo o atual):
+     * responde "o que eu tenho pra pagar daqui pra frente?" sem precisar
+     * navegar mês a mês. Uma consulta só no intervalo inteiro, agrupada em
+     * memória — 6 meses × 2 tipos em flows separados seriam 12 queries.
+     */
+    val proximosMeses: StateFlow<List<MesPrevisto>> =
+        combine(baldesFinanceiros, dataAtual) { b, hoje -> b to hoje }
+            .flatMapLatest { (b, hoje) ->
+                val primeiro = YearMonth.from(hoje)
+                val ultimo = primeiro.plusMonths(MESES_PREVISTOS - 1L)
+                mesclarListas(b) {
+                    repository.observarTransacoesPeriodo(
+                        it, primeiro.atDay(1), ultimo.atEndOfMonth()
+                    )
+                }.map { lista ->
+                    // Só pendência conta: o que já foi pago saiu do "a pagar"
+                    val porMes = lista.filter { !it.pago }.groupBy { YearMonth.from(it.data) }
+                    (0 until MESES_PREVISTOS).map { adiante ->
+                        val mes = primeiro.plusMonths(adiante.toLong())
+                        val doMes = porMes[mes].orEmpty()
+                        MesPrevisto(
+                            mes = mes,
+                            aPagar = doMes.filter { it.tipo == TipoTransacao.GASTO }
+                                .sumOf { it.valor },
+                            aReceber = doMes.filter { it.tipo == TipoTransacao.GANHO }
+                                .sumOf { it.valor }
+                        )
                     }
                 }
             }
@@ -553,5 +601,11 @@ class HomeViewModel @Inject constructor(
 
         /** O card do fechamento fica visível até este dia do mês. */
         const val DIAS_MOSTRANDO_RESUMO = 7
+
+        /**
+         * Meses na faixa "próximos meses", contando o atual. Seis cobre o
+         * horizonte útil sem passar do que a recorrência materializa (12).
+         */
+        const val MESES_PREVISTOS = 6
     }
 }

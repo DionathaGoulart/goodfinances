@@ -61,6 +61,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -82,6 +83,7 @@ import com.finapp.ui.theme.GreenPrimary
 import com.finapp.ui.theme.RedExpense
 import com.finapp.utils.Formatadores
 import com.finapp.viewmodel.HomeViewModel
+import com.finapp.viewmodel.MesPrevisto
 import com.finapp.viewmodel.ResumoMesAnterior
 import com.finapp.viewmodel.TransacaoViewModel
 import kotlinx.coroutines.launch
@@ -313,6 +315,8 @@ fun HomeScreen(
             // Orçamento do mês (só quando alguma categoria tem teto) — coletado
             // aqui no escopo @Composable; o LazyColumn abaixo apenas o consome
             val orcamento by viewModel.orcamentoMes.collectAsStateWithLifecycle()
+            // "O que tem pra pagar daqui pra frente" — pendências já agendadas
+            val proximosMeses by viewModel.proximosMeses.collectAsStateWithLifecycle()
             val linhaTransacao: @Composable (Transacao, Color?) -> Unit = { transacao, corFundo ->
                 val podeEditar = viewModel.podeEditar(transacao)
                 val corCategoria = coresCategorias[transacao.categoria]?.let { hex ->
@@ -420,6 +424,18 @@ fun HomeScreen(
                                 .replaceFirstChar { it.uppercase(Formatadores.LOCALE_BR) }
                         }
                     )
+                }
+                // O que já está agendado daqui pra frente. Some quando não há
+                // nada previsto — faixa vazia só ocuparia tela.
+                if (proximosMeses.any { it.aPagar > 0L || it.aReceber > 0L }) {
+                    item(key = "proximos-meses") {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        FaixaProximosMeses(
+                            meses = proximosMeses,
+                            mesSelecionado = mesSelecionado,
+                            onSelecionar = viewModel::selecionarMes
+                        )
+                    }
                 }
                 // Orçamento do mês (só quando alguma categoria tem teto)
                 orcamento?.let { orc ->
@@ -1021,6 +1037,93 @@ private fun ResumoMesCard(resumo: ResumoMesAnterior, onDispensar: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Faixa "o que vem por aí": um chip por mês com o que está agendado para
+ * pagar. Sai das pendências já materializadas (recorrência mensal, parcela
+ * de cartão), então não é projeção estatística — é conta marcada.
+ *
+ * Tocar num mês navega o histórico até ele, que é como o usuário sai do
+ * "quanto vou pagar em outubro?" para "pagar o quê, exatamente?".
+ */
+@Composable
+private fun FaixaProximosMeses(
+    meses: List<MesPrevisto>,
+    mesSelecionado: YearMonth,
+    onSelecionar: (YearMonth) -> Unit
+) {
+    Column {
+        Text(
+            text = "PRÓXIMOS MESES",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            meses.forEach { previsto ->
+                val selecionado = previsto.mes == mesSelecionado
+                Card(
+                    modifier = Modifier
+                        .width(104.dp)
+                        .clickable { onSelecionar(previsto.mes) },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (selecionado) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        }
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = rotuloMes(previsto.mes).uppercase(Formatadores.LOCALE_BR),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (selecionado) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = Formatadores.moeda(previsto.aPagar),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (previsto.aPagar > 0L) {
+                                RedExpense
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "a pagar",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        // A receber só aparece quando existe: mostrar "R$ 0,00"
+                        // em cinco dos seis meses seria só ruído
+                        if (previsto.aReceber > 0L) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "+${Formatadores.moeda(previsto.aReceber)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = GreenPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
             }
         }
     }
