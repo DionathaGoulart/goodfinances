@@ -1,5 +1,6 @@
 package com.finapp.ui.screen
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -9,16 +10,22 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.TrendingDown
@@ -30,6 +37,7 @@ import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +52,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -55,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.finapp.data.db.entities.TipoEmpresa
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
+import com.finapp.data.db.entities.rotuloContexto
 import com.finapp.ui.component.GraficoBarras
 import com.finapp.ui.component.GraficoLinha
 import com.finapp.ui.component.GraficoPizza
@@ -69,7 +79,9 @@ import com.finapp.viewmodel.Fatura
 import com.finapp.viewmodel.Insight
 import com.finapp.viewmodel.OrcamentoCategoria
 import com.finapp.viewmodel.PainelFiscal
+import com.finapp.viewmodel.ParteCartao
 import com.finapp.viewmodel.TipoInsight
+import com.finapp.viewmodel.VisaoCartao
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -82,6 +94,7 @@ private enum class DetalheEstatistica { GASTO_MEDIO, MAIOR_GASTO, MAIOR_GANHO, C
 /** Sub-abas da Análise, para não empilhar tudo num scroll só. */
 private enum class SubAnalise(val rotulo: String) {
     RESUMO("Resumo"),
+    CARTOES("Cartões"),
     CATEGORIAS("Categorias"),
     GRAFICOS("Gráficos"),
     FISCAL("Fiscal")
@@ -110,6 +123,8 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
     var fatiaDetalhe by remember { mutableStateOf<FatiaPizza?>(null) }
     var faturaDetalhe by remember { mutableStateOf<Fatura?>(null) }
     var subAbaIndice by rememberSaveable { mutableStateOf(0) }
+    val visoesCartao by viewModel.visoesCartao.collectAsStateWithLifecycle()
+    var cartoesExpandidos by rememberSaveable { mutableStateOf(listOf<String>()) }
 
     Column(
         modifier = Modifier
@@ -192,6 +207,7 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
         val abas = remember(painelFiscal) {
             buildList {
                 add(SubAnalise.RESUMO)
+                add(SubAnalise.CARTOES)
                 add(SubAnalise.CATEGORIAS)
                 add(SubAnalise.GRAFICOS)
                 if (painelFiscal != null) add(SubAnalise.FISCAL)
@@ -270,6 +286,37 @@ fun AnaliseScreen(viewModel: AnaliseViewModel = hiltViewModel()) {
                         modifier = Modifier.weight(1f),
                         onClick = { detalheAberto = DetalheEstatistica.CATEGORIA_TOP }
                     )
+                }
+            }
+
+            // ---------- Cartões: tudo do cartão, venha de onde vier ----------
+            // Esta aba ignora os chips de contexto de propósito: a fatura do
+            // cartão é uma só, e a quebra por contexto é justamente o que ela
+            // mostra ("Nubank R$ 260 — Meu 250 · Casa 10").
+            SubAnalise.CARTOES -> {
+                if (visoesCartao.isEmpty()) {
+                    Text(
+                        text = "Nenhuma compra no crédito neste período.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    visoesCartao.forEach { visao ->
+                        CartaoVisaoCard(
+                            visao = visao,
+                            expandido = visao.cartaoUuid in cartoesExpandidos,
+                            onAlternar = {
+                                cartoesExpandidos = if (visao.cartaoUuid in cartoesExpandidos) {
+                                    cartoesExpandidos - visao.cartaoUuid
+                                } else {
+                                    cartoesExpandidos + visao.cartaoUuid
+                                }
+                            }
+                        )
+                    }
+                }
+                if (faturas.isNotEmpty()) {
+                    SecaoFaturas(faturas = faturas, onVerFatura = { faturaDetalhe = it })
                 }
             }
 
@@ -996,5 +1043,221 @@ private fun EstatisticaCard(
                 )
             }
         }
+    }
+}
+
+/**
+ * Um cartão na aba Cartões: total do período somando todos os contextos,
+ * a quebra "de onde veio cada parte" e, ao expandir, as compras com o
+ * rótulo do contexto em cada linha.
+ *
+ * É a resposta para "usei o Nubank no pessoal e na casa — quanto foi de
+ * cada coisa?": o cabeçalho dá o total, as barras dão a proporção e a
+ * lista dá o item a item.
+ */
+@Composable
+private fun CartaoVisaoCard(
+    visao: VisaoCartao,
+    expandido: Boolean,
+    onAlternar: () -> Unit
+) {
+    val cor = runCatching { Color(visao.cor.toColorInt()) }
+        .getOrDefault(MaterialTheme.colorScheme.primary)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .animateContentSize(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onAlternar)
+                .padding(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(cor.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.CreditCard,
+                        contentDescription = null,
+                        tint = cor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = visao.nome,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${visao.itens.size} " +
+                            if (visao.itens.size == 1) "compra" else "compras",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = Formatadores.moeda(visao.total),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    // Em aberto = ainda não saiu do bolso (fatura não paga)
+                    if (visao.pendente > 0L) {
+                        Text(
+                            text = "a pagar ${Formatadores.moeda(visao.pendente)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = if (expandido) {
+                        Icons.Filled.ExpandLess
+                    } else {
+                        Icons.Filled.ExpandMore
+                    },
+                    contentDescription = if (expandido) "Recolher" else "Expandir",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Quebra por contexto: a barra dá a proporção de relance e o
+            // texto o número exato. Com um contexto só não há o que quebrar.
+            if (visao.partes.size > 1) {
+                Spacer(modifier = Modifier.height(10.dp))
+                BarraPartes(partes = visao.partes, total = visao.total, cor = cor)
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    visao.partes.forEach { parte ->
+                        Text(
+                            text = "${parte.rotulo} ${Formatadores.moeda(parte.total)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
+            visao.proximoVencimento?.let { vencimento ->
+                Spacer(modifier = Modifier.height(6.dp))
+                val atrasada = vencimento.isBefore(LocalDate.now())
+                Text(
+                    text = if (atrasada) {
+                        "Venceu ${Formatadores.dataDiaMes(vencimento)}"
+                    } else {
+                        "Vence ${Formatadores.dataDiaMes(vencimento)}"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (atrasada) RedExpense else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        if (expandido) {
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant
+            )
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                visao.itens.forEach { item ->
+                    LinhaCompraCartao(transacao = item)
+                }
+            }
+        }
+    }
+}
+
+/** Barra empilhada com a proporção de cada contexto no cartão. */
+@Composable
+private fun BarraPartes(partes: List<ParteCartao>, total: Long, cor: Color) {
+    if (total <= 0L) return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(6.dp)
+            .clip(RoundedCornerShape(3.dp))
+    ) {
+        partes.forEachIndexed { indice, parte ->
+            // toFloat antes da divisão: em Long isso truncaria tudo para 0
+            val fracao = (parte.total.toDouble() / total).toFloat()
+            if (fracao > 0f) {
+                Box(
+                    modifier = Modifier
+                        .weight(fracao)
+                        .fillMaxHeight()
+                        // Mesma cor do cartão, em intensidades decrescentes
+                        .background(cor.copy(alpha = 1f - indice * 0.22f))
+                )
+            }
+        }
+    }
+}
+
+/** Uma compra dentro do card do cartão, com o rótulo do contexto. */
+@Composable
+private fun LinhaCompraCartao(transacao: Transacao) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = transacao.descricao.ifBlank { transacao.categoria },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = transacao.rotuloContexto(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = (transacao.dataCompra ?: transacao.data)
+                        .let(Formatadores::dataCurta),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = Formatadores.moeda(transacao.valor),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (transacao.pago) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.tertiary
+            }
+        )
     }
 }

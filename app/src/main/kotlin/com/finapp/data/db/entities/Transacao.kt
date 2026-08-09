@@ -115,6 +115,18 @@ fun Transacao.rotuloDono(temCasa: Boolean): String = when {
 }
 
 /**
+ * Rótulo do contexto para a aba Cartões, que mistura TUDO de propósito
+ * (pessoal, casa e empresa no mesmo cartão). Diferente de [rotuloDono], aqui
+ * nunca é vazio: é justamente o rótulo que responde "esse gasto foi de onde?".
+ */
+fun Transacao.rotuloContexto(): String = when {
+    perfil == Perfil.CASA -> "Casa"
+    perfil == Perfil.CASA_MEMBROS -> criadoPor.ifBlank { "Membro" }
+    perfil.ehEmpresa -> "Empresa"
+    else -> "Meu"
+}
+
+/**
  * Na Casa, só quem lançou pode editar/apagar. Compara pelo uid quando
  * disponível (à prova de nomes repetidos); lançamentos antigos só com nome
  * comparam pelo nome; sem autor nenhum, continuam editáveis por todos.

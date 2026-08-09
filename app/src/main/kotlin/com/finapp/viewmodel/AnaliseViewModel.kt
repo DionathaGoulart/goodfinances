@@ -9,12 +9,14 @@ import com.finapp.data.db.entities.TipoEmpresa
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
 import com.finapp.data.db.entities.ehEmpresa
+import com.finapp.data.db.entities.rotuloContexto
 import com.finapp.data.repository.FinanceRepository
 import com.finapp.utils.Intervalo
 import com.finapp.utils.PeriodoFiltro
 import com.finapp.utils.canonicoCartao
 import com.finapp.utils.cartaoPorCanonico
 import com.finapp.utils.fluxoDataAtual
+import com.finapp.utils.mesclarListas
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -85,6 +87,30 @@ data class Fatura(
     val cartaoCor: String,
     val vencimento: LocalDate,
     val total: Long,
+    val itens: List<Transacao>
+)
+
+/** Quanto de um cartão veio de cada contexto. Valores em centavos. */
+data class ParteCartao(
+    val rotulo: String,
+    val total: Long,
+    val quantidade: Int
+)
+
+/**
+ * Um cartão visto por inteiro na aba Cartões: o total do período somando
+ * TODOS os contextos (pessoal, casa e empresa), quanto ainda está em aberto,
+ * e a quebra por contexto — a resposta para "usei o Nubank, quanto foi de
+ * cada coisa?".
+ */
+data class VisaoCartao(
+    val cartaoUuid: String,
+    val nome: String,
+    val cor: String,
+    val total: Long,
+    val pendente: Long,
+    val proximoVencimento: LocalDate?,
+    val partes: List<ParteCartao>,
     val itens: List<Transacao>
 )
 
@@ -398,6 +424,63 @@ class AnaliseViewModel @Inject constructor(
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Aba Cartões: um card por cartão com TUDO que passou nele no período,
+     * de qualquer contexto. Ignora os chips Pessoal/Empresa de propósito — a
+     * fatura do cartão é uma só, venha o gasto de onde vier; quem separa é a
+     * quebra em [VisaoCartao.partes] e o rótulo de cada item.
+     */
+    val visoesCartao: StateFlow<List<VisaoCartao>> =
+        intervalo
+            .flatMapLatest { i ->
+                combine(
+                    mesclarListas(Perfil.BALDES_TODOS) {
+                        repository.observarTransacoesPeriodo(it, i.inicio, i.fim)
+                    },
+                    cartoesGlobais
+                ) { transacoes, cartoes ->
+                    transacoes
+                        .filter { it.cartaoUuid.isNotBlank() }
+                        .groupBy { canonicoCartao(cartoes, it.cartaoUuid) }
+                        .map { (uuid, itens) -> montarVisaoCartao(uuid, itens, cartoes) }
+                        .sortedByDescending { it.total }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private fun montarVisaoCartao(
+        uuid: String,
+        itens: List<Transacao>,
+        cartoes: List<Cartao>
+    ): VisaoCartao {
+        val cartao = cartaoPorCanonico(cartoes, uuid)
+        val partes = itens
+            .groupBy { it.rotuloContexto() }
+            .map { (rotulo, doContexto) ->
+                ParteCartao(
+                    rotulo = rotulo,
+                    total = doContexto.sumOf { it.valor },
+                    quantidade = doContexto.size
+                )
+            }
+            .sortedByDescending { it.total }
+        return VisaoCartao(
+            cartaoUuid = uuid,
+            nome = cartao?.nome ?: "Cartão",
+            cor = cartao?.cor ?: "#8B5CF6",
+            total = itens.sumOf { it.valor },
+            pendente = itens.filter { !it.pago }.sumOf { it.valor },
+            // O vencimento mais próximo ainda em aberto é o que importa
+            proximoVencimento = itens.filter { !it.pago }.minOfOrNull { it.data },
+            partes = partes,
+            // Mais recente primeiro: é o que o usuário acabou de gastar
+            itens = itens.sortedWith(
+                compareByDescending<Transacao> { it.dataCompra ?: it.data }
+                    .thenByDescending { it.id }
+            )
+        )
+    }
 
     fun alterarPeriodo(filtro: PeriodoFiltro) {
         _filtro.value = filtro

@@ -38,6 +38,13 @@ enum class Perfil(val rotulo: String, val descricao: String) {
 
         /** Baldes pessoais — os únicos espelhados na visão Membros da casa. */
         val BALDES_PESSOAIS = listOf(PESSOA_FISICA, MEI_PESSOAL)
+
+        /**
+         * Tudo que o usuário pode VER, inclusive o espelho dos membros. Base
+         * da aba Cartões, que mistura os contextos de propósito: a fatura do
+         * cartão é uma só, venha o gasto de onde vier.
+         */
+        val BALDES_TODOS = BALDES_DADOS + CASA_MEMBROS
     }
 }
 
