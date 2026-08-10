@@ -24,6 +24,7 @@ import com.finapp.data.io.ImportManager
 import com.finapp.data.io.NotaFiscalManager
 import com.finapp.data.notif.NotificacaoManager
 import com.finapp.data.repository.FinanceRepository
+import com.finapp.utils.mesclarListas
 import com.finapp.data.sync.CasaManager
 import com.finapp.data.sync.SyncManager
 import com.finapp.utils.CorApp
@@ -132,6 +133,9 @@ class ConfigViewModel @Inject constructor(
     /** Balde de dados efetivo (no MEI, acompanha a aba Pessoal/Negócio). */
     private val perfilDados: StateFlow<Perfil> = perfilManager.perfilDados
 
+    /** Baldes do contexto (privado + Casa) — listas e export seguem estes. */
+    private val baldes: StateFlow<List<Perfil>> = perfilManager.baldesFinanceiros
+
     private val _mensagens = MutableSharedFlow<String>()
     val mensagens: SharedFlow<String> = _mensagens
 
@@ -146,13 +150,25 @@ class ConfigViewModel @Inject constructor(
             ConfiguracaoPerfil(perfil = Perfil.PESSOA_FISICA)
         )
 
-    val categorias: StateFlow<List<Categoria>> = perfilDados
-        .flatMapLatest { repository.observarCategorias(it) }
+    /**
+     * Categorias do contexto, unificadas Pessoal+Casa. Sem o merge, as
+     * categorias da Casa (e os orçamentos delas) ficariam SEM TELA: elas
+     * eram gerenciadas na aba Casa, que deixou de existir.
+     * As escritas continuam corretas porque agem sobre a `Categoria`, que
+     * carrega o próprio `perfil`.
+     */
+    val categorias: StateFlow<List<Categoria>> = baldes
+        .flatMapLatest { b -> mesclarListas(b) { repository.observarCategorias(it) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Recorrências ativas do perfil (inclui a do salário fixo, se houver). */
-    val recorrentes: StateFlow<List<TransacaoRecorrente>> = perfilDados
-        .flatMapLatest { repository.observarRecorrentesAtivas(it) }
+    /**
+     * Recorrências ativas (inclui a do salário fixo). Unificadas pelo mesmo
+     * motivo — e com um agravante: "da casa" é o destino PADRÃO do modal,
+     * então sem o merge o gasto frequente recém-criado sumiria daqui e não
+     * teria como ser editado nem encerrado.
+     */
+    val recorrentes: StateFlow<List<TransacaoRecorrente>> = baldes
+        .flatMapLatest { b -> mesclarListas(b) { repository.observarRecorrentesAtivas(it) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
@@ -596,9 +612,13 @@ class ConfigViewModel @Inject constructor(
         _periodoExport.value = periodo
     }
 
-    /** Transações do contexto ativo recortadas pelo período de export. */
+    /**
+     * Transações do contexto recortadas pelo período de export — de TODOS os
+     * baldes do contexto. Exportar só o privado deixaria de fora tudo que é
+     * "da casa", que hoje é a maior parte.
+     */
     private suspend fun transacoesParaExport(): List<com.finapp.data.db.entities.Transacao> {
-        val todas = repository.listarTransacoes(perfilDados.value)
+        val todas = baldes.value.flatMap { repository.listarTransacoes(it) }
         val hoje = LocalDate.now()
         val (inicio, fim) = when (_periodoExport.value) {
             PeriodoExport.TUDO -> return todas

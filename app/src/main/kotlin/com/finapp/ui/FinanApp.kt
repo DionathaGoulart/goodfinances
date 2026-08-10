@@ -347,7 +347,7 @@ private data class Dica(val emoji: String, val titulo: String, val descricao: St
 private fun DicasIniciaisDialog(onFechar: () -> Unit) {
     val dicas = listOf(
         Dica("➕", "Botão + no centro", "Toque no + da barra de baixo para lançar um ganho, um gasto ou uma transferência."),
-        Dica("↔️", "Deslize na Home", "Arraste para os lados para trocar entre Pessoal, Empresa e Casa."),
+        Dica("🏠", "De quem é o gasto", "Pessoal e casa ficam na mesma lista: em cada lançamento você escolhe se é da casa (padrão) ou de uma pessoa. Só a Empresa fica separada, deslizando para o lado."),
         Dica("💳", "Cartão e parcelas", "Cadastre cartões em Configurações e lance compras no crédito, à vista ou parceladas."),
         Dica("🚌", "Ônibus", "Configure a passagem e os dias e veja até quando o saldo do cartão dura."),
         Dica("🔔", "Avisos", "O app avisa quando o orçamento estoura, o DAS vence ou uma conta recorrente entra.")

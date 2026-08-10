@@ -333,10 +333,18 @@ class NotificacaoManager @Inject constructor(
     // ---------- Infra ----------
 
     /** Baldes do modo de uso atual (a Casa fica de fora para não gerar ruído). */
-    private fun baldesDoModo(): List<Perfil> = when (perfilManager.perfilAtivo.value) {
-        Perfil.MEI -> listOf(Perfil.MEI_PESSOAL, Perfil.MEI_NEGOCIO)
-        Perfil.CNPJ -> listOf(Perfil.CNPJ)
-        else -> listOf(Perfil.PESSOA_FISICA)
+    /**
+     * Baldes avaliados pelos gatilhos. **Inclui a Casa**: com a unificação,
+     * "da casa" virou o destino PADRÃO de todo lançamento — deixá-la de fora
+     * silenciaria quase todos os avisos de vencimento e orçamento.
+     */
+    private fun baldesDoModo(): List<Perfil> {
+        val doModo = when (perfilManager.perfilAtivo.value) {
+            Perfil.MEI -> listOf(Perfil.MEI_PESSOAL, Perfil.MEI_NEGOCIO)
+            Perfil.CNPJ -> listOf(Perfil.CNPJ)
+            else -> listOf(Perfil.PESSOA_FISICA)
+        }
+        return if (perfilManager.temCasa()) doModo + Perfil.CASA else doModo
     }
 
     /** Balde de empresa do modo atual (null quando o modo é só pessoal). */
