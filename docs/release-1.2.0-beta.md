@@ -1,6 +1,21 @@
 # GoodFinances 1.2.0 (beta)
 
-Notas para a release no GitHub. Publicação: veja "Como publicar" no fim.
+> ⚠️ **Esta versão exige desinstalar o app antes de instalar.** A chave de
+> assinatura mudou, e o Android não atualiza um app por cima quando a
+> assinatura é diferente — a instalação simplesmente falha.
+>
+> **Antes de desinstalar:**
+> 1. Anote o **código de convite da Casa** (Configurações › Casa Compartilhada).
+>    O vínculo com a Casa é local e se perde; sem o código não dá para voltar.
+> 2. Ligue **Sincronização entre aparelhos** e espere sincronizar.
+> 3. Faça um **Export JSON** (Configurações › Dados) e guarde o arquivo fora
+>    do celular.
+>
+> Depois de reinstalar e logar, tudo que é da Casa volta sozinho. Notas
+> fiscais e comprovantes só voltam se o backup do Google Drive estiver ligado.
+>
+> **É a última vez.** Da próxima versão em diante a atualização é normal, sem
+> desinstalar nada.
 
 ---
 
@@ -15,6 +30,9 @@ gasto, você escolhe **de quem é**:
 
 Na Home, os chips `Tudo · Casa · <nomes>` recortam a lista, e cada linha ganhou
 um selo dizendo de quem é. **Só a Empresa continua separada.**
+
+> As pessoas aparecem no seletor conforme cada uma abre esta versão pela
+> primeira vez — é nesse momento que o app publica o nome dela na Casa.
 
 ## 💳 Cartão é único, não por contexto
 
@@ -32,40 +50,11 @@ Faixa nova na Home com o que **já está agendado** para os próximos 6 meses (a
 pagar e a receber). Não é estimativa: sai das contas fixas e parcelas já
 lançadas. Toque num mês para abrir o histórico dele.
 
-## 🔧 Outros
+## 🔧 Correções e ajustes
 
-- Análise: os contextos combináveis agora incluem a Casa junto do Pessoal
+- Notificações passaram a cobrir os lançamentos da Casa — como "da casa" virou
+  o padrão, sem isso quase nenhum aviso de vencimento disparava
+- Gastos frequentes e categorias da Casa voltaram a ter tela nas Configurações
+- Export (CSV/JSON/PDF) agora leva pessoal e casa, não só o pessoal
 - Linha do histórico não estoura mais em tela estreita
-- Banco na versão 17 (migração automática; nada a fazer)
-
----
-
-## Como publicar
-
-Esta build **não pôde ser gerada no ambiente do agente** — faltam os arquivos
-que não são versionados. Do seu lado:
-
-1. `app/google-services.json` (baixe do console do Firebase)
-2. `key.properties` + `finapp-release.jks` na raiz — **os mesmos de sempre**;
-   com um keystore diferente o Android recusa a atualização por cima do app
-   instalado
-3. `gh auth login` (a release é publicada pelo `gh`)
-
-```powershell
-$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-.\gradlew.bat testDebugUnitTest
-.\scripts\release.ps1 -Versao 1.2.0 -Notas "ver docs/release-1.2.0-beta.md"
-```
-
-O `versionCode` já foi para **9** (era 8): o Android recusa instalar por cima
-de um código igual ou menor, e o beta anterior já usou o 8.
-
-O `versionName` segue **"1.2.0"**, sem sufixo `-beta`, de propósito:
-`AtualizacaoManager.ehMaisNova` compara com `split('.')` + `toIntOrNull`, então
-`"1.2.0-beta"` viraria `[1, 2, 0]` e empataria com o `1.2.0` final — quem
-estivesse no beta nunca receberia o aviso da versão estável. O "beta" fica no
-título e na tag da release.
-
-Como a tag `v1.2.0-beta` já existe apontando para o commit anterior, o script
-vai falhar ao recriá-la: apague-a antes (`git tag -d v1.2.0-beta` e
-`git push origin :refs/tags/v1.2.0-beta`) ou publique como `v1.2.1-beta`.
+- Banco na versão 17 (migração automática)
