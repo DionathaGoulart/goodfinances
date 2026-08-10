@@ -24,7 +24,12 @@ android {
         applicationId = "com.finapp"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
+        // Build novo do 1.2.0-beta: o Android recusa instalar por cima de um
+        // versionCode igual ou menor. O versionName segue "1.2.0" de propósito
+        // — AtualizacaoManager.ehMaisNova faz split('.') + toIntOrNull, então
+        // um sufixo "-beta" viraria [1,2,0] e ficaria EMPATADO com o 1.2.0
+        // final, deixando quem está no beta sem nunca receber o aviso.
+        versionCode = 9
         versionName = "1.2.0"
     }
 

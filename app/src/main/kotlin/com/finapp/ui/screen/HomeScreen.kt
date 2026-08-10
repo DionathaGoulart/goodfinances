@@ -245,7 +245,7 @@ fun HomeScreen(
             // recortam ela. Só existe numa casa e fora da empresa — sem casa
             // não há de quem separar.
             val filtroDono by viewModel.filtroDono.collectAsStateWithLifecycle()
-            val membros by viewModel.membrosComLancamentos.collectAsStateWithLifecycle()
+            val pessoas by viewModel.pessoasDaCasa.collectAsStateWithLifecycle()
             if (casaConectada && !perfilDados.ehEmpresa) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
@@ -255,12 +255,18 @@ fun HomeScreen(
                     val opcoes: List<Pair<FiltroDono, String>> = buildList {
                         add(FiltroDono.Tudo to "Tudo")
                         add(FiltroDono.Casa to "Casa")
-                        add(FiltroDono.Eu to "Meu")
-                        membros.forEach { add(it to it.nome.substringBefore(' ')) }
+                        pessoas.forEach { add(it to it.nome.substringBefore(' ')) }
                     }
                     opcoes.forEach { (opcao, rotulo) ->
+                        // Compara por uid: o nome pode variar entre o gravado
+                        // na transação e o publicado pela casa
+                        val marcado = when {
+                            opcao is FiltroDono.Pessoa && filtroDono is FiltroDono.Pessoa ->
+                                opcao.uid == (filtroDono as FiltroDono.Pessoa).uid
+                            else -> filtroDono == opcao
+                        }
                         FilterChip(
-                            selected = filtroDono == opcao,
+                            selected = marcado,
                             onClick = { viewModel.definirFiltroDono(opcao) },
                             label = { Text(rotulo, maxLines = 1) }
                         )

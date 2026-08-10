@@ -122,14 +122,17 @@ class PerfilManager @Inject constructor(
     }
 
     /**
-     * Balde de escrita de um lançamento pessoal conforme o dono escolhido.
-     * Sem casa não há [Dono.CASA] — tudo cai no balde privado.
+     * Balde de escrita conforme o dono escolhido. Numa casa TUDO vai para o
+     * balde compartilhado — inclusive o atribuído a uma pessoa: é o que
+     * permite atribuir gasto um ao outro (no balde privado de quem digitou,
+     * a outra pessoa nunca veria). Fora de uma casa, tudo é privado.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun baldeDe(dono: Dono): Perfil {
         val contexto = _perfilDados.value
         // Na empresa o "de quem" não se aplica: é sempre da empresa
         if (contexto.ehEmpresa) return contexto
-        return if (dono == Dono.CASA && temCasa) Perfil.CASA else contexto
+        return if (temCasa) Perfil.CASA else contexto
     }
 
     /**

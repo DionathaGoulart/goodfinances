@@ -11,8 +11,11 @@ Baixe o APK mais recente na página de [**Releases**](https://github.com/Dionath
 **Controle financeiro**
 - Dashboard com saldo total/do mês, ganhos e gastos em tempo real — e **resumo do fechamento** do mês anterior no começo de cada mês
 - Lançamentos com categoria, descrição e data — máscara de moeda brasileira (digite `1234` e vira `R$ 12,34`)
-- **Compras parceladas** (o valor total é dividido em um lançamento por mês) e **transferências entre contextos** (Pessoal ↔ Empresa ↔ Casa) com as duas pernas vinculadas — deletou uma, some a outra
+- **Uma lista só para pessoal e casa**: em cada ganho/gasto você escolhe **de quem é** — da casa (padrão), seu ou da outra pessoa —, e os chips `Tudo · Casa · <nomes>` recortam a lista. Só a Empresa fica separada
+- **Compras parceladas** (o valor total é dividido em um lançamento por mês) e **transferências entre contextos** (Pessoal ↔ Empresa) com as duas pernas vinculadas — deletou uma, some a outra
 - **Compras no cartão de crédito** agrupadas por cartão na Home, com **"Pagar fatura"** num toque — a pendência só entra no saldo quando você paga
+- **Cartão é único, não por contexto**: cadastrou uma vez, serve para pessoal, casa e empresa. A aba **Cartões** mostra tudo que passou em cada cartão com a quebra de onde veio — *"Nubank R$ 260 — Meu 250 · Casa 10"*
+- **Próximos meses** na Home: o que já está agendado para pagar/receber nos próximos 6 meses (contas fixas e parcelas já materializadas), com um toque para abrir o mês
 - Histórico agrupado por data — **toque para editar, toque longo para o menu** (editar/esconder/excluir)
 - Transações recorrentes e **salário fixo lançado automaticamente** no dia configurado
 - Gráficos em Canvas puro (categorias com alternância ganhos/gastos, linha e barras de 6 meses), **orçamentos por categoria** e estatísticas rápidas
@@ -34,12 +37,13 @@ Baixe o APK mais recente na página de [**Releases**](https://github.com/Dionath
 - 👤 **Só pessoal** — controle do dia a dia
 - 💼 **Pessoal + Empresa** — abas separadas, com pró-labore espelhado
 - 🏢 **Só empresa** — Receita × Despesa + Lucro, painel fiscal com limite do MEI e lembrete do DAS
-- 🏠 **Casa** — carteira **compartilhada e sincronizada** entre membros
+- 🏠 **Casa** — some dentro do Pessoal como carteira **compartilhada e sincronizada** entre membros (não é mais uma aba à parte)
 
 **Casa compartilhada (sync)**
 - Login com Google, criação de "Casa" com código de convite de 6 caracteres
 - Lançamentos aparecem nos outros celulares em segundos, com o nome de quem lançou — e **só o autor pode editar/apagar** (garantido também no servidor)
-- Visão **Membros**: cada um escolhe compartilhar os próprios gastos pessoais com a casa
+- **Atribuição mútua**: dá para lançar um gasto como sendo da outra pessoa, e ela pode fazer o mesmo com você — a atribuição sincroniza junto
+- Cada um escolhe compartilhar também os próprios gastos pessoais com a casa
 - Funciona offline (sincroniza quando a conexão volta); conflitos resolvidos por "última edição vence"
 
 **Dados**

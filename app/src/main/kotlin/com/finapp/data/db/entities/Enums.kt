@@ -49,31 +49,42 @@ enum class Perfil(val rotulo: String, val descricao: String) {
 }
 
 /**
- * De quem é um lançamento do contexto pessoal. A escolha decide o BALDE de
- * armazenamento (e, por tabela, o que sincroniza):
+ * De quem é um lançamento: da casa (padrão) ou de uma pessoa específica.
  *
- * - [CASA] é o padrão: vai para o balde [Perfil.CASA] e todo membro da casa vê.
- * - [EU] vai para o balde pessoal privado ([Perfil.PESSOA_FISICA] /
- *   [Perfil.MEI_PESSOAL]) e só sobe se "compartilhar lançamentos pessoais"
- *   estiver ligado.
+ * Numa casa, TODOS vão para o balde [Perfil.CASA] — inclusive os de uma
+ * pessoa. É isso que deixa a atribuição ser mútua: se o lançamento "da
+ * namorada" ficasse no balde privado de quem digitou, ela nunca o veria, e
+ * ela não teria como atribuir um gasto a você. O preço é explícito: numa
+ * casa, gasto atribuído a alguém é visível para os dois.
  *
- * Sem casa, só [EU] existe — não há com quem compartilhar.
+ * Fora de uma casa não há escolha — tudo cai no balde privado.
  */
-enum class Dono(val rotulo: String) {
-    CASA("Casa"),
-    EU("Meu")
+sealed interface Dono {
+    data object Casa : Dono
+    data class Pessoa(val uid: String, val nome: String) : Dono
 }
 
 /**
- * Filtro "de quem" da lista unificada Pessoal+Casa. [MEMBRO] carrega o uid do
- * membro da casa cujos lançamentos pessoais chegaram pelo espelho
- * ([Perfil.CASA_MEMBROS]) — só existe para quem ligou o compartilhamento.
+ * Igualdade por IDENTIDADE (uid), ignorando o nome. O nome de exibição pode
+ * variar entre o que ficou gravado na transação e o que a casa publica —
+ * comparar por `==` deixaria o chip certo sem marcar.
+ */
+fun Dono.mesmoQue(outro: Dono): Boolean = when {
+    this is Dono.Casa && outro is Dono.Casa -> true
+    this is Dono.Pessoa && outro is Dono.Pessoa -> uid == outro.uid
+    else -> false
+}
+
+/**
+ * Filtro "de quem" da lista unificada. [Pessoa] cobre tanto os lançamentos
+ * atribuídos à pessoa na casa quanto os privados dela (os seus, do balde
+ * pessoal; os dela, do espelho [Perfil.CASA_MEMBROS]) — para quem filtra,
+ * "gastos da fulana" é uma coisa só, não três.
  */
 sealed interface FiltroDono {
     data object Tudo : FiltroDono
     data object Casa : FiltroDono
-    data object Eu : FiltroDono
-    data class Membro(val uid: String, val nome: String) : FiltroDono
+    data class Pessoa(val uid: String, val nome: String) : FiltroDono
 }
 
 /** Balde que guarda dados da empresa: habilita nota fiscal e o tema empresa. */

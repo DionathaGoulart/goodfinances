@@ -79,7 +79,16 @@ data class Transacao(
      * Editar/encerrar a recorrência propaga só para as ocorrências futuras
      * NÃO PAGAS vinculadas por aqui.
      */
-    val recorrenciaUuid: String = ""
+    val recorrenciaUuid: String = "",
+    /**
+     * Uid de QUEM é o gasto/ganho dentro da casa ("" = é da casa, o padrão).
+     * Diferente de [criadoPorUid], que é quem DIGITOU: eu posso lançar um
+     * gasto que é da minha namorada, e ela pode lançar um que é meu.
+     * Só faz sentido no balde [Perfil.CASA]; fora dele fica vazio.
+     */
+    val pessoaUid: String = "",
+    /** Nome de exibição da pessoa em [pessoaUid] (evita depender do sync). */
+    val pessoaNome: String = ""
 )
 
 /**
@@ -91,15 +100,22 @@ val Transacao.dataEfetiva: LocalDate
     get() = if (pago) dataPagamento ?: data else data
 
 /**
- * True quando a transação passa pelo filtro "de quem" da visão unificada
- * Pessoal+Casa. O dono é DERIVADO do balde (não é coluna): Casa = balde
- * compartilhado, Membro = espelho de quem compartilha, Eu = balde privado.
+ * True quando a transação passa pelo filtro "de quem". [meuUid] é o usuário
+ * logado — precisa entrar aqui porque "meus gastos" vêm de dois lugares: os
+ * atribuídos a mim na casa e os do meu balde privado (inclusive os de antes
+ * da atribuição existir).
  */
-fun Transacao.atendeFiltro(filtro: FiltroDono): Boolean = when (filtro) {
+fun Transacao.atendeFiltro(filtro: FiltroDono, meuUid: String): Boolean = when (filtro) {
     FiltroDono.Tudo -> true
-    FiltroDono.Casa -> perfil == Perfil.CASA
-    FiltroDono.Eu -> perfil != Perfil.CASA && perfil != Perfil.CASA_MEMBROS
-    is FiltroDono.Membro -> perfil == Perfil.CASA_MEMBROS && criadoPorUid == filtro.uid
+    // Da casa = no balde compartilhado e sem dono específico
+    FiltroDono.Casa -> perfil == Perfil.CASA && pessoaUid.isBlank()
+    is FiltroDono.Pessoa -> when {
+        perfil == Perfil.CASA -> pessoaUid == filtro.uid
+        // Espelho: o privado dela, que chega se ela compartilha
+        perfil == Perfil.CASA_MEMBROS -> criadoPorUid == filtro.uid
+        // Meu balde privado só é "meu" se o filtro for por mim
+        else -> filtro.uid == meuUid && meuUid.isNotBlank()
+    }
 }
 
 /**
@@ -108,9 +124,10 @@ fun Transacao.atendeFiltro(filtro: FiltroDono): Boolean = when (filtro) {
  * toda linha só faria ruído.
  */
 fun Transacao.rotuloDono(temCasa: Boolean): String = when {
-    perfil == Perfil.CASA_MEMBROS -> criadoPor.ifBlank { "Membro" }
+    perfil == Perfil.CASA_MEMBROS -> criadoPor.substringBefore(' ').ifBlank { "Membro" }
     !temCasa || perfil.ehEmpresa -> ""
-    perfil == Perfil.CASA -> "Casa"
+    perfil == Perfil.CASA && pessoaUid.isBlank() -> "Casa"
+    perfil == Perfil.CASA -> pessoaNome.substringBefore(' ').ifBlank { "Pessoa" }
     else -> "Meu"
 }
 

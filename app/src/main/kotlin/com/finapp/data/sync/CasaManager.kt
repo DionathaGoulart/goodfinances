@@ -7,6 +7,7 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.finapp.data.db.entities.Dono
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FieldValue
@@ -30,8 +31,28 @@ data class UsuarioCasa(
 data class Casa(
     val id: String,
     val codigoConvite: String,
-    val membros: List<String>
-)
+    val membros: List<String>,
+    /**
+     * uid -> nome de exibição de cada membro. Sem isso o seletor "de quem é"
+     * só teria uids para mostrar: a lista `membros` guarda identidade, não
+     * nome. Cada aparelho registra o próprio nome ao abrir a casa.
+     */
+    val nomes: Map<String, String> = emptyMap()
+) {
+    /** Membros como pessoas selecionáveis, o logado primeiro. */
+    fun pessoas(meuUid: String?): List<Dono.Pessoa> = membros
+        .map { uid ->
+            Dono.Pessoa(
+                uid = uid,
+                nome = when {
+                    nomes[uid]?.isNotBlank() == true -> nomes.getValue(uid)
+                    uid == meuUid -> "Eu"
+                    else -> "Membro"
+                }
+            )
+        }
+        .sortedByDescending { it.uid == meuUid }
+}
 
 /**
  * Login Google (Credential Manager) + gestão da Casa no Firestore.
@@ -87,6 +108,8 @@ class CasaManager @Inject constructor(
             // pessoal direto no DAO (sem passar pelo repository)
             if (_casa.value != null) {
                 runCatching { repository.espelharCartoesPessoaisNaCasa() }
+                // Publica meu nome para os outros me verem no seletor
+                registrarMeuNome(casaId)
             }
         }.onFailure {
             android.util.Log.w(TAG, "Falha ao carregar a casa $casaId", it)
@@ -185,6 +208,7 @@ class CasaManager @Inject constructor(
         // Só o criador semeia as categorias padrão; os demais recebem via sync
         repository.semearCategoriasCasa()
         salvarCasa(casa)
+        registrarMeuNome(casa.id)
         // Meus cartões pessoais aparecem na Casa (espelho; sobe pelo sync)
         runCatching { repository.espelharCartoesPessoaisNaCasa() }
         return casa
@@ -208,6 +232,7 @@ class CasaManager @Inject constructor(
         val casa = db.collection(COLECAO).document(casaId).get().await().paraCasa()
             ?: throw IllegalStateException("Casa não encontrada — peça um código novo")
         salvarCasa(casa)
+        registrarMeuNome(casa.id)
         // Meus cartões pessoais aparecem na Casa (espelho; sobe pelo sync)
         runCatching { repository.espelharCartoesPessoaisNaCasa() }
         return casa
@@ -290,8 +315,30 @@ class CasaManager @Inject constructor(
         return Casa(
             id = id,
             codigoConvite = getString("codigoConvite") ?: return null,
-            membros = (get("membros") as? List<String>).orEmpty()
+            membros = (get("membros") as? List<String>).orEmpty(),
+            nomes = (get("nomes") as? Map<String, String>).orEmpty()
         )
+    }
+
+    /**
+     * Publica o meu nome no doc da casa, para os outros membros conseguirem
+     * me mostrar no seletor "de quem é". Update em campo aninhado
+     * (`nomes.<uid>`) para não sobrescrever o nome dos outros, e sempre
+     * DEPOIS de já ser membro — a regra do convite valida o formato exato do
+     * update de entrada e não é o lugar de mexer em mais nada.
+     */
+    private suspend fun registrarMeuNome(casaId: String) {
+        val usuario = _usuario.value ?: return
+        if (usuario.nome.isBlank()) return
+        if (_casa.value?.nomes?.get(usuario.uid) == usuario.nome) return
+        runCatching {
+            db.collection(COLECAO).document(casaId)
+                .update("nomes.${usuario.uid}", usuario.nome)
+                .await()
+            _casa.value = _casa.value?.let {
+                it.copy(nomes = it.nomes + (usuario.uid to usuario.nome))
+            }
+        }.onFailure { android.util.Log.w(TAG, "Falha ao registrar nome na casa", it) }
     }
 
     private fun com.google.firebase.auth.FirebaseUser.paraUsuario() =

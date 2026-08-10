@@ -23,7 +23,7 @@ import com.finapp.data.db.entities.TransacaoRecorrente
         Meta::class,
         ContaAgendada::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -440,6 +440,23 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRACAO_15_16 = object : Migration(15, 16) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE Transacao ADD COLUMN dataPagamento INTEGER")
+            }
+        }
+
+        /**
+         * v16 -> v17: Transacao ganha pessoaUid/pessoaNome — de QUEM é o
+         * lançamento dentro da casa (vazio = da casa, que é o padrão e o que
+         * todo histórico existente vira). Diferente de criadoPor*, que é
+         * quem digitou: um pode lançar o gasto do outro.
+         */
+        val MIGRACAO_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE Transacao ADD COLUMN pessoaUid TEXT NOT NULL DEFAULT ''"
+                )
+                db.execSQL(
+                    "ALTER TABLE Transacao ADD COLUMN pessoaNome TEXT NOT NULL DEFAULT ''"
+                )
             }
         }
     }

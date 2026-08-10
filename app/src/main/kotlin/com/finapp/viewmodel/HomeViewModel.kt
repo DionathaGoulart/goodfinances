@@ -77,6 +77,17 @@ data class OrcamentoMes(
     val estourado: Boolean get() = gasto > teto
 }
 
+/**
+ * Entradas da lista do mês. Existe só para o `combine` de 4 flows ter um tipo
+ * de verdade — com Triple/List a destructuring vira cast cego.
+ */
+private data class ChaveLista(
+    val baldes: List<Perfil>,
+    val mes: YearMonth,
+    val filtro: FiltroDono,
+    val meuUid: String
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -212,14 +223,19 @@ class HomeViewModel @Inject constructor(
      * própria — o merge precisa reordenar.
      */
     val transacoesDoMes: StateFlow<List<Transacao>> =
-        combine(baldesVisiveis, _mesSelecionado, _filtroDono) { b, mes, filtro ->
-            Triple(b, mes, filtro)
+        combine(
+            baldesVisiveis,
+            _mesSelecionado,
+            _filtroDono,
+            casaManager.usuario
+        ) { b, mes, filtro, usuario ->
+            ChaveLista(b, mes, filtro, usuario?.uid.orEmpty())
         }
-            .flatMapLatest { (b, mes, filtro) ->
-                mesclarListas(b) {
+            .flatMapLatest { (baldes, mes, filtro, meuUid) ->
+                mesclarListas(baldes) {
                     repository.observarTransacoesPeriodo(it, mes.atDay(1), mes.atEndOfMonth())
                 }.map { lista ->
-                    lista.filter { it.atendeFiltro(filtro) }
+                    lista.filter { it.atendeFiltro(filtro, meuUid) }
                         .sortedWith(compareByDescending<Transacao> { it.data }.thenByDescending { it.id })
                 }
             }
@@ -229,21 +245,12 @@ class HomeViewModel @Inject constructor(
      * Membros da casa que compartilham os lançamentos pessoais — viram chips
      * de filtro. Sai do próprio espelho: quem não compartilha não aparece.
      */
-    val membrosComLancamentos: StateFlow<List<FiltroDono.Membro>> =
-        baldesVisiveis
-            .flatMapLatest { b ->
-                if (Perfil.CASA_MEMBROS !in b) {
-                    flowOf(emptyList())
-                } else {
-                    repository.observarTransacoes(Perfil.CASA_MEMBROS).map { lista ->
-                        lista.filter { it.criadoPorUid.isNotBlank() }
-                            .distinctBy { it.criadoPorUid }
-                            .map { FiltroDono.Membro(it.criadoPorUid, it.criadoPor.ifBlank { "Membro" }) }
-                            .sortedBy { it.nome }
-                    }
-                }
-            }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val pessoasDaCasa: StateFlow<List<FiltroDono.Pessoa>> =
+        combine(casaManager.casa, casaManager.usuario) { casa, usuario ->
+            casa?.pessoas(usuario?.uid)
+                ?.map { FiltroDono.Pessoa(it.uid, it.nome) }
+                .orEmpty()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * O que já está agendado para os próximos meses (incluindo o atual):

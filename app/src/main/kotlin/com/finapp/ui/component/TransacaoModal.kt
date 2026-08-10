@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -70,6 +71,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.finapp.data.db.entities.Cartao
 import com.finapp.data.db.entities.Dono
+import com.finapp.data.db.entities.mesmoQue
 import com.finapp.data.db.entities.Perfil
 import com.finapp.data.db.entities.TipoTransacao
 import com.finapp.data.db.entities.Transacao
@@ -145,14 +147,14 @@ fun TransacaoModal(
     val cartoes by viewModel.cartoes.collectAsStateWithLifecycle()
 
     // De quem é o lançamento. Padrão "Da casa" — é o caso comum de quem
-    // divide as contas; o balde privado é a exceção consciente.
+    // divide as contas; atribuir a uma pessoa é a exceção consciente.
     val donos by viewModel.donos.collectAsStateWithLifecycle()
     var dono by remember {
-        mutableStateOf(
-            if (transacaoParaEditar == null || transacaoParaEditar.perfil == Perfil.CASA) {
-                Dono.CASA
+        mutableStateOf<Dono>(
+            if (transacaoParaEditar != null && transacaoParaEditar.pessoaUid.isNotBlank()) {
+                Dono.Pessoa(transacaoParaEditar.pessoaUid, transacaoParaEditar.pessoaNome)
             } else {
-                Dono.EU
+                Dono.Casa
             }
         )
     }
@@ -339,52 +341,54 @@ fun TransacaoModal(
 
             // ---------- De quem é (Casa / Meu) ----------
             // Só aparece numa casa e fora da empresa — sem isso não há escolha.
-            // A opção decide o BALDE: Casa vai para todos os membros, Meu fica
-            // privado. Em EDIÇÃO é só informativo: mudar de dono é mudar de
-            // balde (e do que sincroniza), então é apagar e lançar de novo.
+            // Dá para atribuir a OUTRA pessoa: eu lanço o gasto dela, ela o
+            // meu. Em EDIÇÃO os chips ficam desabilitados (mostram de quem é,
+            // mas trocar exigiria remexer no que já sincronizou).
             if (donos.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
-                if (edicao) {
-                    Text(
-                        text = "Lançamento ${if (dono == Dono.CASA) "da Casa" else "seu (privado)"}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        donos.forEach { opcao ->
-                            val selecionado = dono == opcao
-                            FilterChip(
-                                selected = selecionado,
-                                onClick = { dono = opcao },
-                                label = {
-                                    Text(
-                                        text = if (opcao == Dono.CASA) "Da casa" else "Só meu",
-                                        maxLines = 1
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = if (opcao == Dono.CASA) {
-                                            Icons.Filled.Home
-                                        } else {
-                                            Icons.Filled.Person
-                                        },
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .semantics {
-                                        role = Role.RadioButton
-                                        selected = selecionado
-                                    }
-                            )
-                        }
+                Text(
+                    text = "De quem é",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                // Rola na horizontal: numa casa com vários membros os chips
+                // não cabem lado a lado numa tela estreita
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    donos.forEach { opcao ->
+                        val selecionado = dono.mesmoQue(opcao)
+                        FilterChip(
+                            selected = selecionado,
+                            enabled = !edicao,
+                            onClick = { dono = opcao },
+                            label = {
+                                Text(
+                                    text = when (opcao) {
+                                        is Dono.Casa -> "Da casa"
+                                        is Dono.Pessoa -> opcao.nome.substringBefore(' ')
+                                    },
+                                    maxLines = 1
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (opcao is Dono.Casa) {
+                                        Icons.Filled.Home
+                                    } else {
+                                        Icons.Filled.Person
+                                    },
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            modifier = Modifier.semantics {
+                                role = Role.RadioButton
+                                selected = selecionado
+                            }
+                        )
                     }
                 }
             }

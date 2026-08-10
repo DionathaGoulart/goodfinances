@@ -19,6 +19,7 @@ import com.finapp.data.sync.CasaManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -51,12 +52,18 @@ class TransacaoViewModel @Inject constructor(
     private val baldes: StateFlow<List<Perfil>> = perfilManager.baldesFinanceiros
 
     /**
-     * Donos oferecidos no modal. Vazio = não há o que escolher (fora de uma
-     * casa, ou dentro da empresa) e o seletor some.
+     * Donos oferecidos no modal: "Casa" mais uma opção por membro (eu
+     * primeiro). Vazio = não há o que escolher (fora de uma casa, ou dentro
+     * da empresa) e o seletor some.
      */
-    val donos: StateFlow<List<Dono>> = baldes
-        .map { if (Perfil.CASA in it) listOf(Dono.CASA, Dono.EU) else emptyList() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val donos: StateFlow<List<Dono>> =
+        combine(baldes, casaManager.casa, casaManager.usuario) { b, casa, usuario ->
+            if (Perfil.CASA !in b || casa == null) {
+                emptyList()
+            } else {
+                listOf(Dono.Casa) + casa.pessoas(usuario?.uid)
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _mensagens = MutableSharedFlow<String>()
     val mensagens: SharedFlow<String> = _mensagens
@@ -102,9 +109,11 @@ class TransacaoViewModel @Inject constructor(
      * (modo misto, aba Empresa): espelha o gasto como ganho no balde
      * Pessoal — o pró-labore do dono.
      *
-     * [dono] decide o BALDE: [Dono.CASA] (padrão) grava no balde compartilhado
-     * — todo membro vê; [Dono.EU] grava no balde privado. Fora de uma casa e
-     * dentro da empresa o parâmetro é ignorado (só existe um destino).
+     * [dono] é de QUEM é o lançamento: [Dono.Casa] (padrão) ou uma pessoa da
+     * casa — inclusive OUTRA pessoa, que é o ponto (posso lançar o gasto da
+     * minha namorada e ela o meu). Numa casa tudo grava no balde
+     * compartilhado, senão a atribuição não chegaria ao outro aparelho. Fora
+     * de uma casa e dentro da empresa o parâmetro é ignorado.
      */
     fun adicionarTransacao(
         valorCentavos: Long,
@@ -119,7 +128,7 @@ class TransacaoViewModel @Inject constructor(
         lancarProLaborePessoal: Boolean = false,
         cartao: Cartao? = null,
         aReceber: Boolean = false,
-        dono: Dono = Dono.CASA
+        dono: Dono = Dono.Casa
     ) {
         if (valorCentavos <= 0L) {
             emitir("Informe um valor maior que zero")
@@ -131,6 +140,8 @@ class TransacaoViewModel @Inject constructor(
             val usuario = casaManager.usuario.value.takeIf { destino == Perfil.CASA }
             val autor = usuario?.nome.orEmpty()
             val autorUid = usuario?.uid.orEmpty()
+            // De QUEM é (≠ quem digitou): só no balde compartilhado
+            val pessoa = (dono as? Dono.Pessoa).takeIf { destino == Perfil.CASA }
             val totalParcelas = parcelas.coerceIn(1, 24)
             // GASTO repetido = gasto frequente: quem lança as ocorrências
             // (inclusive a deste mês, como "a pagar") é a recorrência — a
@@ -216,6 +227,8 @@ class TransacaoViewModel @Inject constructor(
                             descricao = descricaoFinal,
                             data = dataLancamento,
                             perfil = destino,
+                            pessoaUid = pessoa?.uid.orEmpty(),
+                            pessoaNome = pessoa?.nome.orEmpty(),
                             criadoPor = autor,
                             criadoPorUid = autorUid,
                             notaFiscal = if (indice == 0) notaFiscal else "",
