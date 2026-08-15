@@ -509,6 +509,39 @@ class HomeViewModel @Inject constructor(
             nomeUsuario = casaManager.usuario.value?.nome
         )
 
+    /**
+     * Quantas ocorrências não pagas seriam apagadas ao encerrar a recorrência
+     * desta linha. 0 = não é ocorrência de recorrência (ou não sobrou nenhuma),
+     * e a UI nem oferece a ação.
+     */
+    suspend fun contarPendentesDaRecorrencia(transacao: Transacao): Int {
+        if (transacao.recorrenciaUuid.isBlank()) return 0
+        return runCatching {
+            repository.contarOcorrenciasNaoPagas(transacao.recorrenciaUuid)
+        }.getOrDefault(0)
+    }
+
+    /**
+     * Encerra a recorrência a que esta linha pertence: para de gerar novas e
+     * apaga de uma vez todas as ocorrências ainda não pagas. As já pagas ficam
+     * — são histórico. Sem desfazer, por isso a UI confirma antes.
+     */
+    fun encerrarRecorrenciaDe(transacao: Transacao) {
+        if (!podeEditar(transacao)) {
+            viewModelScope.launch { _mensagens.emit("Só quem lançou pode encerrar esta recorrência") }
+            return
+        }
+        viewModelScope.launch {
+            runCatching {
+                val recorrente = repository.buscarRecorrentePorUuid(transacao.recorrenciaUuid)
+                    ?: error("Recorrência não encontrada")
+                repository.encerrarRecorrenteComOcorrencias(recorrente)
+            }
+                .onSuccess { _mensagens.emit("Recorrência encerrada e pendências apagadas") }
+                .onFailure { _mensagens.emit("Erro ao encerrar a recorrência") }
+        }
+    }
+
     /** Deleta com suporte a desfazer: a UI mostra snackbar e pode chamar [restaurarTransacao]. */
     fun deletarTransacao(transacao: Transacao) {
         if (!podeEditar(transacao)) {

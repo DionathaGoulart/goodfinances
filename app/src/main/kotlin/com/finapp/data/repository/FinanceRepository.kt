@@ -791,22 +791,29 @@ class FinanceRepository @Inject constructor(
         }
     }
 
-    /** Encerra a recorrência e tombstona as pendências futuras vinculadas. */
-    suspend fun encerrarRecorrenteComOcorrencias(
-        recorrente: TransacaoRecorrente,
-        hoje: LocalDate = LocalDate.now()
-    ) {
+    /**
+     * Encerra a recorrência e tombstona TODA ocorrência não paga vinculada —
+     * inclusive as atrasadas. Antes o corte era "de hoje em diante", e a
+     * parcela vencida e não paga sobrevivia ao encerrar, obrigando a apagar
+     * na mão justamente a linha que mais incomoda (ela aparece em vermelho).
+     */
+    suspend fun encerrarRecorrenteComOcorrencias(recorrente: TransacaoRecorrente) {
         db.withTransaction {
             val momento = agora()
-            // aposDe exclusivo: ontem inclui as pendências de hoje em diante
-            transacaoDao.tombstonarOcorrenciasApos(
-                recorrente.uuid, hoje.minusDays(1), momento
-            )
+            transacaoDao.tombstonarOcorrenciasNaoPagas(recorrente.uuid, momento)
             transacaoRecorrenteDao.atualizar(
                 recorrente.copy(ativa = false, atualizadoEm = momento)
             )
         }
     }
+
+    /** Quantas ocorrências não pagas o encerrar vai apagar (para a confirmação). */
+    suspend fun contarOcorrenciasNaoPagas(recorrenciaUuid: String): Int =
+        transacaoDao.contarOcorrenciasNaoPagas(recorrenciaUuid)
+
+    /** Recorrência de uma ocorrência (a linha da Home só tem o uuid). */
+    suspend fun buscarRecorrentePorUuid(uuid: String): TransacaoRecorrente? =
+        transacaoRecorrenteDao.porUuid(uuid)
 
     // ---------- Metas de economia ----------
 

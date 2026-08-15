@@ -34,6 +34,14 @@ interface TransacaoRecorrenteDao {
     @Query("SELECT * FROM TransacaoRecorrente WHERE perfil = :perfil AND deletado = 0 AND ativa = 1")
     suspend fun listarAtivas(perfil: Perfil): List<TransacaoRecorrente>
 
+    /**
+     * Recorrência pelo uuid — a linha da Home só carrega o `recorrenciaUuid`
+     * e precisa chegar na regra para encerrá-la. Sem filtro de `ativa`:
+     * encerrar uma já inativa ainda tem que limpar as ocorrências.
+     */
+    @Query("SELECT * FROM TransacaoRecorrente WHERE uuid = :uuid AND deletado = 0 LIMIT 1")
+    suspend fun porUuid(uuid: String): TransacaoRecorrente?
+
     @Query(
         """
         UPDATE TransacaoRecorrente SET categoria = :novoNome, atualizadoEm = :agora

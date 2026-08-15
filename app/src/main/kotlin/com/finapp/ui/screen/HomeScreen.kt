@@ -126,6 +126,11 @@ fun HomeScreen(
 
     var modalAberto by remember { mutableStateOf(abrirModalInicial) }
     var transacaoEmEdicao by remember { mutableStateOf<Transacao?>(null) }
+    // Encerrar recorrência a partir de uma ocorrência: guarda a linha e quantas
+    // pendências somem junto, para a confirmação dizer o tamanho do estrago
+    var encerrarRecorrencia by remember {
+        mutableStateOf<Pair<Transacao, Int>?>(null)
+    }
     // Consome o pedido do widget para não reabrir ao voltar pra aba
     LaunchedEffect(Unit) {
         if (abrirModalInicial) onLancamentoConsumido()
@@ -358,6 +363,12 @@ fun HomeScreen(
                     },
                     onAlternarOculto = viewModel::alternarOculto,
                     onAlternarPago = viewModel::alternarPago,
+                    onEncerrarRecorrencia = { ocorrencia ->
+                        escopo.launch {
+                            val quantas = viewModel.contarPendentesDaRecorrencia(ocorrencia)
+                            encerrarRecorrencia = ocorrencia to quantas
+                        }
+                    },
                     onBloqueado = {
                         escopo.launch {
                             snackbarHostState.showSnackbar(
@@ -540,6 +551,54 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // ---------- Encerrar recorrência (a partir de uma ocorrência) ----------
+    encerrarRecorrencia?.let { (ocorrencia, quantas) ->
+        AlertDialog(
+            onDismissRequest = { encerrarRecorrencia = null },
+            title = { Text("Encerrar recorrência?") },
+            text = {
+                Text(
+                    buildString {
+                        append('"')
+                        append(ocorrencia.descricao.ifBlank { ocorrencia.categoria })
+                        append("\" para de se repetir.")
+                        if (quantas > 0) {
+                            append("\n\n")
+                            append(
+                                if (quantas == 1) {
+                                    "1 lançamento ainda não pago será apagado"
+                                } else {
+                                    "$quantas lançamentos ainda não pagos serão apagados"
+                                }
+                            )
+                            append(" — inclusive os atrasados.")
+                        }
+                        append("\n\nO que você já pagou continua no histórico. ")
+                        append("Esta ação não tem desfazer.")
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.encerrarRecorrenciaDe(ocorrencia)
+                        encerrarRecorrencia = null
+                    }
+                ) {
+                    Text(
+                        text = if (quantas > 0) "Encerrar e apagar" else "Encerrar",
+                        color = RedExpense
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { encerrarRecorrencia = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 
     // ---------- Atualização disponível (GitHub Releases) ----------

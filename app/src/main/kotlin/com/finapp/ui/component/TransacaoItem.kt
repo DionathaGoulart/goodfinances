@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -297,6 +298,12 @@ fun TransacaoLinha(
     corCategoria: Color? = null,
     rotuloDono: String = "",
     onAlternarPago: ((Transacao) -> Unit)? = null,
+    /**
+     * Encerrar a recorrência inteira a partir de uma ocorrência. Só aparece
+     * quando a linha tem `recorrenciaUuid`: sem isso, a única saída visível
+     * era "Excluir", que apaga só aquele mês e faz o usuário repetir 12 vezes.
+     */
+    onEncerrarRecorrencia: ((Transacao) -> Unit)? = null,
     onBloqueado: () -> Unit = {}
 ) {
     var menuAberto by remember { mutableStateOf(false) }
@@ -397,6 +404,25 @@ fun TransacaoLinha(
                     onClick = {
                         menuAberto = false
                         onExcluir(transacao)
+                    }
+                )
+            }
+            if (podeEditar &&
+                onEncerrarRecorrencia != null &&
+                transacao.recorrenciaUuid.isNotBlank()
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Encerrar recorrência") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.EventBusy,
+                            contentDescription = null,
+                            tint = RedExpense
+                        )
+                    },
+                    onClick = {
+                        menuAberto = false
+                        onEncerrarRecorrencia(transacao)
                     }
                 )
             }

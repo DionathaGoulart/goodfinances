@@ -271,6 +271,29 @@ interface TransacaoDao {
         agora: Long
     )
 
+    /**
+     * Tombstona TODA ocorrência não paga, inclusive as atrasadas (vencimento
+     * no passado). É o que "encerrar" significa para o usuário: some com o que
+     * ainda não virou dinheiro de verdade, sem recorte de data. Diferente de
+     * [tombstonarOcorrenciasApos], que serve ao "dura até" e precisa do corte.
+     */
+    @Query(
+        """
+        UPDATE Transacao SET deletado = 1, atualizadoEm = :agora
+        WHERE recorrenciaUuid = :recorrenciaUuid AND deletado = 0 AND pago = 0
+        """
+    )
+    suspend fun tombstonarOcorrenciasNaoPagas(recorrenciaUuid: String, agora: Long)
+
+    /** Quantas ocorrências ainda não pagas — a confirmação mostra antes de apagar. */
+    @Query(
+        """
+        SELECT COUNT(*) FROM Transacao
+        WHERE recorrenciaUuid = :recorrenciaUuid AND deletado = 0 AND pago = 0
+        """
+    )
+    suspend fun contarOcorrenciasNaoPagas(recorrenciaUuid: String): Int
+
     /** Marca um lote como pago/pendente (pagar fatura marca o grupo inteiro). */
     @Query(
         """

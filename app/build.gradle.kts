@@ -29,7 +29,7 @@ android {
         // — AtualizacaoManager.ehMaisNova faz split('.') + toIntOrNull, então
         // um sufixo "-beta" viraria [1,2,0] e ficaria EMPATADO com o 1.2.0
         // final, deixando quem está no beta sem nunca receber o aviso.
-        versionCode = 9
+        versionCode = 10
         versionName = "1.2.0"
     }
 
