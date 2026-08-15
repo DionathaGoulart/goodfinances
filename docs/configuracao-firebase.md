@@ -37,40 +37,22 @@ Coloque o arquivo em **`app/google-services.json`**.
 
 ## 5. Publicar as regras de segurança
 
-Na aba **Rules** do Firestore, substitua tudo por:
-
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /casas/{casaId} {
-      allow create: if request.auth != null;
-      allow read: if request.auth != null;
-      allow update: if request.auth != null
-        && (request.auth.uid in resource.data.membros
-            || request.auth.uid in request.resource.data.membros);
-      match /{documento=**} {
-        allow read, write: if request.auth != null
-          && request.auth.uid in
-             get(/databases/$(database)/documents/casas/$(casaId)).data.membros;
-      }
-    }
-    match /usuarios/{uid}/{documento=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-    }
-  }
-}
-```
+Na aba **Rules** do Firestore, cole o conteúdo de **[`firestore-rules.txt`](../firestore-rules.txt)** (raiz do repositório) e publique. Esse arquivo é a fonte única das regras — não copie regras de outro lugar, e republique sempre que ele mudar.
 
 O que elas garantem:
 
 | Recurso | Quem pode |
 |---|---|
-| Criar casa | qualquer usuário logado |
-| Ler/buscar casa (pelo código de convite) | qualquer usuário logado |
-| Entrar/sair da casa (`membros`) | membros ou quem está se adicionando |
-| Transações/categorias da casa | **somente membros** daquela casa |
-| Backups (`usuarios/{uid}`) | **somente o próprio usuário** |
+| Criar casa | qualquer usuário logado, desde que se inclua nos membros e seja o `criadoPor` |
+| Ler a casa | **somente membros**; listar casas é negado (impede enumerar) |
+| Resolver um código de convite | qualquer logado, por GET direto — **listar** os códigos é negado |
+| Registrar um código de convite | **somente membro** da casa apontada (impede squatting) |
+| Entrar na casa | quem ainda não é membro, **só acrescentando o próprio uid** (sem trocar a lista, o código ou o criador) |
+| Ler lançamentos da casa | **somente membros** daquela casa |
+| Editar/apagar um lançamento | **somente o autor** (`criadoPorUid`) |
+| Categorias, cartões, metas e contas da casa | qualquer membro (são coletivos) |
+| Espelho pessoal (`membros/{uid}`) | todos os membros leem, **só o dono escreve** |
+| Backups e sync pessoal (`usuarios/{uid}`) | **somente o próprio usuário** |
 
 ## 6. Verificar
 

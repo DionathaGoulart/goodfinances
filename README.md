@@ -1,10 +1,16 @@
 # 💰 GoodFinances
 
+**Versão atual: 1.3.0**
+
 App Android de controle financeiro pessoal e familiar, com **carteira compartilhada sincronizada em tempo real** entre celulares. Feito em Kotlin + Jetpack Compose, dark mode nativo, 100% em português.
 
 ## 📲 Instalação e atualizações
 
 Baixe o APK mais recente na página de [**Releases**](https://github.com/DionathaGoulart/goodfinances/releases/latest). O app **verifica sozinho** se saiu versão nova (uma vez por dia) e oferece o download com um toque — publicou release nova aqui, todo mundo recebe o aviso no celular.
+
+O que mudou em cada versão está no [**CHANGELOG**](CHANGELOG.md).
+
+> Vindo de uma versão anterior à 1.2.0? Aquela atualização exigiu **desinstalar o app antes de instalar** (a chave de assinatura mudou). Foi a última vez — do 1.3.0 em diante a atualização é normal. O passo a passo de como não perder nada está no [CHANGELOG](CHANGELOG.md#120-beta).
 
 ## ✨ Funcionalidades
 
@@ -16,8 +22,9 @@ Baixe o APK mais recente na página de [**Releases**](https://github.com/Dionath
 - **Compras no cartão de crédito** agrupadas por cartão na Home, com **"Pagar fatura"** num toque — a pendência só entra no saldo quando você paga
 - **Cartão é único, não por contexto**: cadastrou uma vez, serve para pessoal, casa e empresa. A aba **Cartões** mostra tudo que passou em cada cartão com a quebra de onde veio — *"Nubank R$ 260 — Meu 250 · Casa 10"*
 - **Próximos meses** na Home: o que já está agendado para pagar/receber nos próximos 6 meses (contas fixas e parcelas já materializadas), com um toque para abrir o mês
-- Histórico agrupado por data — **toque para editar, toque longo para o menu** (editar/esconder/excluir)
-- Transações recorrentes e **salário fixo lançado automaticamente** no dia configurado
+- Histórico agrupado por data — **toque para editar, toque longo para o menu** (editar/esconder/excluir/encerrar recorrência)
+- **Contas fixas** que se lançam sozinhas todo mês como "a pagar", com **"Encerrar recorrência"** num toque: para de repetir e limpa de uma vez tudo que ainda não foi pago (inclusive os atrasados) — o que você já pagou fica no histórico
+- **Salário fixo lançado automaticamente** no dia configurado
 - Gráficos em Canvas puro (categorias com alternância ganhos/gastos, linha e barras de 6 meses), **orçamentos por categoria** e estatísticas rápidas
 - **Toque numa fatia da pizza** para ver os lançamentos daquela categoria — débito/dinheiro separados por categoria e crédito por cartão
 - **Insights automáticos** do mês: variações relevantes vs o mês anterior ("gastou 32% a mais em Alimentação")
@@ -76,7 +83,8 @@ Mais detalhes (release assinado, convenções de código): [docs/desenvolvimento
 
 | Documento | Conteúdo |
 |---|---|
-| [docs/arquitetura.md](docs/arquitetura.md) | Camadas, sistema de perfis, modelo de dados, decisões de design |
+| [CHANGELOG.md](CHANGELOG.md) | O que mudou em cada versão |
+| [docs/arquitetura.md](docs/arquitetura.md) | Camadas, contextos e baldes, dono do lançamento, modelo de dados (v17), decisões de design |
 | [docs/sincronizacao.md](docs/sincronizacao.md) | Como a Casa compartilhada funciona por dentro (push/pull, conflitos, tombstones, backup na nuvem) |
 | [docs/configuracao-firebase.md](docs/configuracao-firebase.md) | Setup completo do Firebase (Auth, Firestore, regras de segurança) |
 | [docs/desenvolvimento.md](docs/desenvolvimento.md) | Build, testes, assinatura de release e convenções |

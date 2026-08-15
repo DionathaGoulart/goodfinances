@@ -19,3 +19,9 @@ key.properties
 # Config do Firebase (contem ids do projeto)
 app/google-services.json
 /.kotlin/
+
+# Exports do app (dados financeiros reais) — nunca versionar
+GoodFinances_*.json
+GoodFinances_*.csv
+GoodFinances_*.pdf
+GoodFinances_*.zip
