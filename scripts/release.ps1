@@ -34,10 +34,12 @@ git push origin main
 git tag "v$Versao"
 git push origin "v$Versao"
 
+# --latest e a AUSENCIA de --prerelease/--draft sao obrigatorios: o app consulta
+# /releases/latest, que ignora rascunhos e pre-releases (ver docs/release.md).
 if ($Notas -eq "") {
-    gh release create "v$Versao" $apk --title "GoodFinances $Versao" --generate-notes
+    gh release create "v$Versao" $apk --title "GoodFinances $Versao" --generate-notes --latest
 } else {
-    gh release create "v$Versao" $apk --title "GoodFinances $Versao" --notes $Notas
+    gh release create "v$Versao" $apk --title "GoodFinances $Versao" --notes $Notas --latest
 }
 
 Remove-Item $apk

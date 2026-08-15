@@ -88,6 +88,7 @@ Mais detalhes (release assinado, convenções de código): [docs/desenvolvimento
 | [docs/sincronizacao.md](docs/sincronizacao.md) | Como a Casa compartilhada funciona por dentro (push/pull, conflitos, tombstones, backup na nuvem) |
 | [docs/configuracao-firebase.md](docs/configuracao-firebase.md) | Setup completo do Firebase (Auth, Firestore, regras de segurança) |
 | [docs/desenvolvimento.md](docs/desenvolvimento.md) | Build, testes, assinatura de release e convenções |
+| [docs/release.md](docs/release.md) | Como publicar uma versão e o contrato que mantém a auto-atualização funcionando |
 
 ## 📄 Licença
 

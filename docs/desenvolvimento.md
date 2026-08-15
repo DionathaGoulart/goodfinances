@@ -37,6 +37,8 @@ Para gerar os seus:
 
 > ⚠️ **Faça backup do keystore e do key.properties.** Sem eles não é possível publicar atualizações do app já instalado.
 
+Para publicar de fato (tag, APK anexado, release marcada como *latest*), use `scripts/release.sh` / `scripts/release.ps1` — o contrato completo da auto-atualização está em [release.md](release.md).
+
 ## Testes
 
 Os testes unitários cobrem a lógica pura (sem Android):
