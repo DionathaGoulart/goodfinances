@@ -1,99 +1,102 @@
 # 💰 GoodFinances
 
-**Versão atual: 1.3.0**
+**Current version: 1.3.0**
 
-App Android de controle financeiro pessoal e familiar, com **carteira compartilhada sincronizada em tempo real** entre celulares. Feito em Kotlin + Jetpack Compose, dark mode nativo, 100% em português.
+Android app for personal and household finances, with a **shared wallet synced in real time** across phones. Built with Kotlin and Jetpack Compose, dark mode only.
 
-## 📲 Instalação e atualizações
+> The app itself — UI strings and code identifiers (`adicionarTransacao`, `perfilDados`) — is in **Brazilian Portuguese**, because that is who it is built for. Everything written for developers is in English.
 
-Baixe o APK mais recente na página de [**Releases**](https://github.com/DionathaGoulart/goodfinances/releases/latest). O app **verifica sozinho** se saiu versão nova (uma vez por dia) e oferece o download com um toque — publicou release nova aqui, todo mundo recebe o aviso no celular.
+## 📲 Install and updates
 
-O que mudou em cada versão está no [**CHANGELOG**](CHANGELOG.md).
+Grab the latest APK from the [**Releases**](https://github.com/DionathaGoulart/goodfinances/releases/latest) page. The app **checks for new versions on its own** (once a day) and downloads the update with a single tap — publish a release here and every phone gets notified.
 
-> Vindo de uma versão anterior à 1.2.0? Aquela atualização exigiu **desinstalar o app antes de instalar** (a chave de assinatura mudou). Foi a última vez — do 1.3.0 em diante a atualização é normal. O passo a passo de como não perder nada está no [CHANGELOG](CHANGELOG.md#120-beta).
+See the [**CHANGELOG**](CHANGELOG.md) for what changed in each version.
 
-## ✨ Funcionalidades
+> Coming from a version older than 1.2.0? That update required **uninstalling the app first** (the signing key changed). It was a one-off — from 1.3.0 on, updates install over the top. The migration steps are in the [CHANGELOG](CHANGELOG.md#120-beta---2026-07-16).
 
-**Controle financeiro**
-- Dashboard com saldo total/do mês, ganhos e gastos em tempo real — e **resumo do fechamento** do mês anterior no começo de cada mês
-- Lançamentos com categoria, descrição e data — máscara de moeda brasileira (digite `1234` e vira `R$ 12,34`)
-- **Uma lista só para pessoal e casa**: em cada ganho/gasto você escolhe **de quem é** — da casa (padrão), seu ou da outra pessoa —, e os chips `Tudo · Casa · <nomes>` recortam a lista. Só a Empresa fica separada
-- **Compras parceladas** (o valor total é dividido em um lançamento por mês) e **transferências entre contextos** (Pessoal ↔ Empresa) com as duas pernas vinculadas — deletou uma, some a outra
-- **Compras no cartão de crédito** agrupadas por cartão na Home, com **"Pagar fatura"** num toque — a pendência só entra no saldo quando você paga
-- **Cartão é único, não por contexto**: cadastrou uma vez, serve para pessoal, casa e empresa. A aba **Cartões** mostra tudo que passou em cada cartão com a quebra de onde veio — *"Nubank R$ 260 — Meu 250 · Casa 10"*
-- **Próximos meses** na Home: o que já está agendado para pagar/receber nos próximos 6 meses (contas fixas e parcelas já materializadas), com um toque para abrir o mês
-- Histórico agrupado por data — **toque para editar, toque longo para o menu** (editar/esconder/excluir/encerrar recorrência)
-- **Contas fixas** que se lançam sozinhas todo mês como "a pagar", com **"Encerrar recorrência"** num toque: para de repetir e limpa de uma vez tudo que ainda não foi pago (inclusive os atrasados) — o que você já pagou fica no histórico
-- **Salário fixo lançado automaticamente** no dia configurado
-- Gráficos em Canvas puro (categorias com alternância ganhos/gastos, linha e barras de 6 meses), **orçamentos por categoria** e estatísticas rápidas
-- **Toque numa fatia da pizza** para ver os lançamentos daquela categoria — débito/dinheiro separados por categoria e crédito por cartão
-- **Insights automáticos** do mês: variações relevantes vs o mês anterior ("gastou 32% a mais em Alimentação")
-- **Faturas do cartão** em aberto, agrupadas por vencimento
-- **Widget** de lançamento rápido na home do Android e **bloqueio por biometria** opcional
+## ✨ Features
 
-**Planejamento e avisos**
-- **Notificações** — avisos de orçamento estourando, DAS vencendo, limite do MEI, contas vencendo, recorrências do dia e lembrete quando você fica dias sem registrar
-- **Atualização in-app** — o app baixa e instala a versão nova sozinho quando sai release nova
+**Day-to-day finances**
+- Dashboard with total and monthly balance, income and expenses in real time — plus a **closing summary** of the previous month at the start of each month
+- Entries with category, description and date, using a Brazilian currency mask (type `1234`, get `R$ 12,34`)
+- **A single list for personal and household spending**: every entry says **whose it is** — the household (default), yours, or the other person's — and the `Tudo · Casa · <names>` chips slice the list. Only Business stays separate
+- **Installment purchases** (the total is split into one entry per month) and **transfers between contexts** (Personal ↔ Business) with both legs linked — delete one and the other goes with it
+- **Credit card purchases** grouped by card on Home, with **"Pay invoice"** in one tap — the pending amount only hits the balance once you pay
+- **Cards are global, not per context**: register one and it works for personal, household and business. The **Cards** tab breaks down everything that went through each card by context — *"Nubank R$ 260 — Meu 250 · Casa 10"*
+- **Upcoming months** on Home: what is already scheduled to be paid or received over the next 6 months (fixed bills and installments already materialized), one tap to open the month
+- History grouped by date — **tap to edit, long-press for the menu** (edit / hide / delete / end recurrence)
+- **Fixed bills** that post themselves every month as pending, with **"End recurrence"** in one tap: it stops repeating and clears everything still unpaid, overdue included — what you already paid stays in the history
+- **Fixed salary posted automatically** on the configured day
+- Charts drawn with plain Canvas (categories with an income/expense toggle, 6-month line and bars), **per-category budgets** and quick stats
+- **Tap a pie slice** to see the entries behind it — debit and cash split by category, credit split by card
+- **Automatic monthly insights**: notable changes against the previous month ("you spent 32% more on Food")
+- **Open card invoices**, grouped by due date
+- **Home-screen widget** for quick entry and optional **biometric lock**
 
-**Notas fiscais e comprovantes**
-- Anexe foto, imagem ou PDF a qualquer lançamento — **imagens viram PDF automaticamente**
-- Backup dos arquivos no **Google Drive** da sua conta (grátis, pasta privada do app)
-- Export ZIP organizado por **ano/mês + CSV anual** — pronto para a declaração de imposto
+**Planning and alerts**
+- **Notifications** for budgets running over, DAS tax due, MEI revenue ceiling, bills coming due, recurring income for the day, and a nudge when you go days without recording anything
+- **In-app updates** — the app downloads and installs the new version by itself
 
-**Modos de uso** — dados totalmente isolados entre si:
-- 👤 **Só pessoal** — controle do dia a dia
-- 💼 **Pessoal + Empresa** — abas separadas, com pró-labore espelhado
-- 🏢 **Só empresa** — Receita × Despesa + Lucro, painel fiscal com limite do MEI e lembrete do DAS
-- 🏠 **Casa** — some dentro do Pessoal como carteira **compartilhada e sincronizada** entre membros (não é mais uma aba à parte)
+**Receipts and invoices**
+- Attach a photo, image or PDF to any entry — **images are converted to PDF automatically**
+- Back those files up to **Google Drive** (free, app-private folder)
+- ZIP export organized by **year/month plus a yearly CSV** — ready for tax season
 
-**Casa compartilhada (sync)**
-- Login com Google, criação de "Casa" com código de convite de 6 caracteres
-- Lançamentos aparecem nos outros celulares em segundos, com o nome de quem lançou — e **só o autor pode editar/apagar** (garantido também no servidor)
-- **Atribuição mútua**: dá para lançar um gasto como sendo da outra pessoa, e ela pode fazer o mesmo com você — a atribuição sincroniza junto
-- Cada um escolhe compartilhar também os próprios gastos pessoais com a casa
-- Funciona offline (sincroniza quando a conexão volta); conflitos resolvidos por "última edição vence"
+**Usage modes** — data fully isolated from each other:
+- 👤 **Personal only** — day-to-day spending
+- 💼 **Personal + Business** — separate tabs, with mirrored owner's pay
+- 🏢 **Business only** — revenue × expenses plus profit, tax panel with the MEI ceiling and DAS reminder
+- 🏠 **Household** — lives inside Personal as a **shared wallet synced** across members (no longer a separate tab)
 
-**Dados**
-- Export CSV, JSON e relatório em PDF · Import com prévia e deduplicação
-- **Sincronização entre aparelhos** da mesma conta (opt-in) e backup automático semanal — local **e na nuvem**
-- Dinheiro armazenado em **centavos (`Long`)** — sem erro de ponto flutuante
+**Shared household (sync)**
+- Google sign-in and a "House" with a 6-character invite code
+- Entries show up on the other phones within seconds, tagged with who created them — and **only the author can edit or delete** (enforced server-side too)
+- **Mutual assignment**: you can log an expense as belonging to the other person, and they can do the same for you — the assignment syncs along
+- Each member can also choose to share their own personal spending with the household
+- Works offline (syncs when the connection returns); conflicts resolved last-write-wins
 
-## 🛠 Tecnologias
+**Data**
+- CSV, JSON and PDF report export · import with preview and deduplication
+- **Cross-device sync** for the same account (opt-in) and an automatic weekly backup — local **and in the cloud**
+- Money stored as **cents (`Long`)** — no floating-point drift
 
-Kotlin 2.1 · Jetpack Compose (Material 3) · Room (SQLite) · Hilt + KSP · Coroutines/Flow · WorkManager (notificações) · Firebase Auth + Firestore · Canvas API (gráficos) · JUnit
+## 🛠 Built with
 
-## 🚀 Como rodar
+Kotlin 2.1 · Jetpack Compose (Material 3) · Room (SQLite) · Hilt + KSP · Coroutines/Flow · WorkManager · Firebase Auth + Firestore · Canvas API for charts · JUnit
 
-Pré-requisitos: Android Studio (ou JDK 17 + Android SDK 36).
+## 🚀 Getting started
+
+Requirements: Android Studio, or JDK 17 plus Android SDK 36.
 
 ```bash
 git clone git@github.com:DionathaGoulart/goodfinances.git
 ```
 
-O login Google e o sync exigem um projeto Firebase próprio (o `google-services.json` não é versionado) — siga o passo a passo em [docs/configuracao-firebase.md](docs/configuracao-firebase.md).
+Google sign-in and sync need your own Firebase project (`google-services.json` is not versioned) — follow [docs/firebase-setup.md](docs/firebase-setup.md).
 
-```powershell
-.\gradlew.bat assembleDebug        # APK debug
-.\gradlew.bat testDebugUnitTest    # testes unitários
+```bash
+./gradlew assembleDebug        # debug APK
+./gradlew testDebugUnitTest    # unit tests
 ```
 
-Mais detalhes (release assinado, convenções de código): [docs/desenvolvimento.md](docs/desenvolvimento.md).
+More detail (signed releases, code conventions) in [docs/development.md](docs/development.md).
 
-## 📚 Documentação
+## 📚 Documentation
 
-| Documento | Conteúdo |
+| Document | Contents |
 |---|---|
-| [CHANGELOG.md](CHANGELOG.md) | O que mudou em cada versão |
-| [docs/arquitetura.md](docs/arquitetura.md) | Camadas, contextos e baldes, dono do lançamento, modelo de dados (v17), decisões de design |
-| [docs/sincronizacao.md](docs/sincronizacao.md) | Como a Casa compartilhada funciona por dentro (push/pull, conflitos, tombstones, backup na nuvem) |
-| [docs/configuracao-firebase.md](docs/configuracao-firebase.md) | Setup completo do Firebase (Auth, Firestore, regras de segurança) |
-| [docs/desenvolvimento.md](docs/desenvolvimento.md) | Build, testes, assinatura de release e convenções |
-| [docs/release.md](docs/release.md) | Como publicar uma versão e o contrato que mantém a auto-atualização funcionando |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each version |
+| [docs/architecture.md](docs/architecture.md) | Layers, contexts and buckets, entry ownership, data model (v17), design decisions |
+| [docs/sync.md](docs/sync.md) | How the shared household works internally (push/pull, conflicts, tombstones, cloud backup) |
+| [docs/firebase-setup.md](docs/firebase-setup.md) | Full Firebase setup (Auth, Firestore, security rules) |
+| [docs/development.md](docs/development.md) | Build, tests, release signing and conventions |
+| [docs/release.md](docs/release.md) | How to publish a version and the contract that keeps auto-updates working |
+| [docs/roadmap.md](docs/roadmap.md) | Known gaps, accepted trade-offs and pending work |
 
-## 📄 Licença
+## 📄 License
 
-Uso **pessoal e não comercial** liberado — usar, modificar e compilar para você e sua família à vontade. **Uso comercial** (vender, publicar em loja de forma paga/com anúncios, usar em serviço remunerado) requer permissão por escrito do autor. Veja [LICENSE](LICENSE).
+**Personal, non-commercial use** is free — use, modify and build it for yourself and your family. **Commercial use** (selling it, publishing it to a store for money or with ads, using it in a paid service) requires written permission from the author. See [LICENSE](LICENSE).
 
-## 👤 Autor
+## 👤 Author
 
 **Dionatha Goulart** — dgoulart.work@gmail.com

@@ -11,16 +11,16 @@ captures/
 *.aab
 output-metadata.json
 
-# Assinatura de release — NUNCA versionar (faça backup manual em local seguro)
+# Release signing — NEVER commit these (keep a manual backup somewhere safe)
 key.properties
 *.jks
 *.keystore
 
-# Config do Firebase (contem ids do projeto)
+# Firebase config (contains project ids)
 app/google-services.json
 /.kotlin/
 
-# Exports do app (dados financeiros reais) — nunca versionar
+# App exports (real financial data) — never commit
 GoodFinances_*.json
 GoodFinances_*.csv
 GoodFinances_*.pdf

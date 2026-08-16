@@ -1,104 +1,104 @@
 #!/usr/bin/env bash
-# Publica uma versão nova no GitHub Releases (Linux/WSL).
+# Publishes a new version to GitHub Releases (Linux/WSL).
 #
-# O app instalado detecta a release sozinho (checagem 1x/dia) e oferece o
-# download com um toque — mas só se a release respeitar o contrato do
-# AtualizacaoManager. Este script existe para não deixar nenhum item de fora;
-# ver docs/release.md para o porquê de cada um.
+# The installed app finds the release on its own (checked once a day) and offers
+# a one-tap update — but only if the release honours the AtualizacaoManager
+# contract. This script exists so no item of that contract is ever missed; see
+# docs/release.md for the reasoning behind each one.
 #
-# Uso:
-#   1. Atualize versionCode (+1) e versionName em app/build.gradle.kts
-#   2. Escreva a seção da versão no CHANGELOG.md (o corpo da release sai daqui)
-#   3. Commite e:  ./scripts/release.sh 1.3.0
+# Usage:
+#   1. Bump versionCode (+1) and versionName in app/build.gradle.kts
+#   2. Write the version's section in CHANGELOG.md (the release body comes from it)
+#   3. Commit, then:  ./scripts/release.sh 1.3.0
 #
-# Requisitos: gh autenticado (gh auth login), JDK 17, Android SDK e
-# key.properties + finapp-release.jks na raiz.
+# Requires: an authenticated gh CLI (gh auth login), JDK 17, the Android SDK,
+# and key.properties + finapp-release.jks in the repository root.
 
 set -euo pipefail
 
-VERSAO="${1:-}"
-if [[ -z "$VERSAO" ]]; then
-    echo "Uso: ./scripts/release.sh <versao>   (ex.: ./scripts/release.sh 1.3.0)" >&2
+VERSION="${1:-}"
+if [[ -z "$VERSION" ]]; then
+    echo "Usage: ./scripts/release.sh <version>   (e.g. ./scripts/release.sh 1.3.0)" >&2
     exit 1
 fi
 
-RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$RAIZ"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
 
 : "${JAVA_HOME:=$HOME/androidtools/jdk17}"
 : "${ANDROID_HOME:=$HOME/androidtools/sdk}"
 export JAVA_HOME ANDROID_HOME
 PATH="$PATH:$HOME/androidtools/gh/bin"
 
-erro() { echo "ERRO: $*" >&2; exit 1; }
+fail() { echo "ERROR: $*" >&2; exit 1; }
 
-# ---------- Verificações que impedem uma release que não atualiza ninguém ----------
+# ---------- Checks that stop a release nobody would receive ----------
 
-# O AtualizacaoManager compara só X.Y.Z: um sufixo tipo "-beta" empata com o
-# estável e quem está no beta nunca receberia o aviso.
-[[ "$VERSAO" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-    || erro "versao deve ser X.Y.Z sem sufixo (recebi '$VERSAO')."
+# AtualizacaoManager compares X.Y.Z only: a suffix such as "-beta" ties with the
+# stable version, so anyone on the beta would never be told about it.
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || fail "version must be X.Y.Z with no suffix (got '$VERSION')."
 
-grep -q "versionName = \"$VERSAO\"" app/build.gradle.kts \
-    || erro "versionName em app/build.gradle.kts nao e $VERSAO."
+grep -q "versionName = \"$VERSION\"" app/build.gradle.kts \
+    || fail "versionName in app/build.gradle.kts is not $VERSION."
 
-CODIGO=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
-ANTERIOR=$(git show HEAD~1:app/build.gradle.kts 2>/dev/null | grep -oP 'versionCode = \K[0-9]+' || echo 0)
-[[ "$CODIGO" -gt "$ANTERIOR" ]] \
-    || echo "AVISO: versionCode ($CODIGO) nao subiu desde o commit anterior ($ANTERIOR) — o Android recusa instalar por cima."
+CODE=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
+PREVIOUS=$(git show HEAD~1:app/build.gradle.kts 2>/dev/null | grep -oP 'versionCode = \K[0-9]+' || echo 0)
+[[ "$CODE" -gt "$PREVIOUS" ]] \
+    || echo "WARNING: versionCode ($CODE) did not increase since the previous commit ($PREVIOUS) — Android refuses to install over an equal or lower one."
 
 [[ -f key.properties && -f finapp-release.jks ]] \
-    || erro "key.properties/finapp-release.jks ausentes — sem eles o APK sai sem assinatura e nao instala por cima do app existente."
+    || fail "key.properties/finapp-release.jks missing — without them the APK is unsigned and will not install over the existing app."
 
 [[ -z "$(git status --porcelain)" ]] \
-    || erro "arvore suja — commite tudo antes de publicar."
+    || fail "working tree is dirty — commit everything before publishing."
 
-git rev-parse "v$VERSAO" >/dev/null 2>&1 \
-    && erro "a tag v$VERSAO ja existe."
+git rev-parse "v$VERSION" >/dev/null 2>&1 \
+    && fail "tag v$VERSION already exists."
 
-command -v gh >/dev/null || erro "gh CLI nao encontrado."
-gh auth status >/dev/null 2>&1 || erro "gh nao autenticado — rode 'gh auth login'."
+command -v gh >/dev/null || fail "gh CLI not found."
+gh auth status >/dev/null 2>&1 || fail "gh is not authenticated — run 'gh auth login'."
 
-# ---------- Notas: a seção desta versão no CHANGELOG ----------
+# ---------- Release notes: this version's section in the CHANGELOG ----------
 
-# Para no separador "---" que antecede a próxima versão, para o corpo da
-# release não terminar com uma linha horizontal solta.
-NOTAS=$(awk -v v="## $VERSAO" '
-    $0 == v {ok=1; next}
-    ok && (/^## / || /^---[[:space:]]*$/) {exit}
-    ok {print}
+# Keep a Changelog heading: "## [1.3.0] - 2026-08-16". Stops at the next
+# version heading or a horizontal rule.
+NOTES=$(awk -v v="## [$VERSION]" '
+    index($0, v) == 1 {found=1; next}
+    found && (/^## / || /^---[[:space:]]*$/) {exit}
+    found {print}
 ' CHANGELOG.md)
-[[ -n "${NOTAS// /}" ]] || erro "CHANGELOG.md nao tem a secao '## $VERSAO'."
+[[ -n "${NOTES// /}" ]] || fail "CHANGELOG.md has no '## [$VERSION]' section."
 
 # ---------- Build ----------
 
-echo "==> Testes e APK release..."
+echo "==> Tests and release APK..."
 ./gradlew testDebugUnitTest assembleRelease --console=plain
 
-APK="GoodFinances-$VERSAO.apk"
+APK="GoodFinances-$VERSION.apk"
 cp app/build/outputs/apk/release/app-release.apk "$APK"
 
-# O app procura o primeiro asset terminado em .apk; sem ele, o dialog só abre
-# a página da release no navegador.
-[[ "$APK" == *.apk ]] || erro "o asset precisa terminar em .apk."
+# The app picks the first asset ending in .apk; without one, the dialog can only
+# open the release page in a browser.
+[[ "$APK" == *.apk ]] || fail "the asset must end in .apk."
 
-# ---------- Publicação ----------
+# ---------- Publish ----------
 
-echo "==> Tag e push..."
+echo "==> Tag and push..."
 git push origin main
-git tag "v$VERSAO"
-git push origin "v$VERSAO"
+git tag "v$VERSION"
+git push origin "v$VERSION"
 
-echo "==> Criando a release..."
-# --latest e ausência de --prerelease/--draft são obrigatórios: o app consulta
-# /releases/latest, que ignora rascunhos e pre-releases.
-gh release create "v$VERSAO" "$APK" \
-    --title "GoodFinances $VERSAO" \
-    --notes "$NOTAS" \
+echo "==> Creating the release..."
+# --latest, and the absence of --prerelease/--draft, are mandatory: the app
+# queries /releases/latest, which ignores drafts and pre-releases.
+gh release create "v$VERSION" "$APK" \
+    --title "GoodFinances $VERSION" \
+    --notes "$NOTES" \
     --latest
 
 rm -f "$APK"
 
 echo
-echo "Release v$VERSAO publicada. Os apps instalados avisam ao abrir a Home, na"
-echo "primeira vez apos 24h da ultima checagem."
+echo "Release v$VERSION published. Installed apps will prompt when Home opens,"
+echo "the first time more than 24h after their last check."

@@ -1,80 +1,119 @@
 # Changelog
 
-Todas as mudanças relevantes de cada versão. O app avisa sozinho quando sai release nova (uma vez por dia) e oferece o download com um toque.
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 1.3.0
+The app checks for new releases once a day and offers the update with a single
+tap. Publishing a release is described in [docs/release.md](docs/release.md).
 
-Primeira versão **estável** da leva que começou no 1.2.0-beta: Pessoal e Casa unificados, cartão global e a aba Cartões saem do beta, agora com o controle de recorrência que faltava.
+## [1.3.0] - 2026-08-16
 
-### 🔁 Encerrar uma recorrência direto da linha
+First **stable** release of the batch that started in 1.2.0-beta: personal and
+household spending unified, global cards and the Cards tab leave beta, now with
+the recurrence control that was missing.
 
-Toque longo em qualquer lançamento que veio de uma conta fixa e escolha **Encerrar recorrência**. Antes o menu só oferecia "Excluir", que apaga **aquele mês** — para se livrar de uma conta que não existe mais era preciso repetir a operação 12 vezes.
+### Added
 
-O que acontece ao encerrar:
+- **End a recurrence straight from the entry row.** Long-press any entry that
+  came from a fixed bill and pick *Encerrar recorrência*: the rule stops
+  generating new occurrences and every unpaid entry is removed at once. The
+  confirmation says how many will disappear before you commit.
 
-- a regra para de gerar novas ocorrências;
-- **todo lançamento ainda não pago some de uma vez — inclusive os atrasados**. Antes o corte era "de hoje em diante" e a parcela vencida sobrevivia ao encerrar, justamente a linha vermelha que mais incomoda;
-- o que você **já pagou continua no histórico** — é dinheiro que saiu de verdade.
+### Changed
 
-A confirmação diz quantos lançamentos somem antes de você decidir. Não tem desfazer.
+- Ending a recurrence no longer cuts off at today's date — **overdue unpaid
+  entries are removed too**. Previously the past-due instalment survived, which
+  left behind exactly the red overdue row the user wanted gone.
+- Entries you already **paid stay in the history** when a recurrence ends; only
+  unpaid ones are removed.
+- Documentation reviewed end to end (architecture at schema v17, sync with
+  invites and mirrors, development guide) and moved to English.
 
-### 🔧 Outros
+### Fixed
 
-- `versionCode` 11 / `versionName` 1.3.0 — o aviso de atualização chega a quem está no 1.2.0
-- Documentação revisada de ponta a ponta (arquitetura no banco v17, sincronização com convites/espelhos, guia de desenvolvimento)
+- `docs/firebase-setup.md` inlined an **outdated, insecure copy of the Firestore
+  rules** and told you to publish it. It now points at `firestore.rules` as the
+  single source of truth.
 
----
+## [1.2.0-beta] - 2026-07-16
 
-## 1.2.0 (beta)
-
-> ⚠️ **Esta versão exigiu desinstalar o app antes de instalar** — a chave de assinatura mudou e o Android não atualiza um app por cima quando a assinatura é diferente. **Foi a última vez**: do 1.3.0 em diante a atualização é normal.
+> ⚠️ **This version required uninstalling the app before installing.** The
+> signing key changed, and Android will not update an app in place when the
+> signature differs. **It was a one-off** — from 1.3.0 on, updates install over
+> the top.
 >
-> Se você ainda está numa versão anterior ao 1.2.0, antes de desinstalar: anote o **código de convite da Casa** (Configurações › Casa Compartilhada), ligue **Sincronização entre aparelhos** e espere sincronizar, e faça um **Export JSON** guardado fora do celular. Notas fiscais e comprovantes só voltam com o backup do Google Drive ligado.
+> If you are still on something older than 1.2.0, before uninstalling: write
+> down the **House invite code** (Settings › Casa Compartilhada), turn on
+> **cross-device sync** and wait for it to finish, and take a **JSON export**
+> stored off the phone. Receipts and invoices only come back if the Google Drive
+> backup is enabled.
 
-### 🏠 Pessoal e Casa viraram uma coisa só
+### Added
 
-A Casa **deixou de ser uma aba**. Agora é uma lista única e, em cada ganho ou gasto, você escolhe **de quem é**:
+- **Personal and household became a single view.** The House is no longer a tab.
+  Every entry says whose it is — the household (default), you, or the other
+  person — and you can log an expense on their behalf, and they on yours. The
+  assignment syncs along. On Home, the `Tudo · Casa · <names>` chips slice the
+  list and every row carries an owner badge. Only Business stays separate.
+- **Cards became global.** Register a card once and it works for personal,
+  household and business; what stays separate is the spending, by the entry's
+  bucket.
+- **Cards tab** (inside Analysis): everything that went through each card, with
+  the share of each context and every item labelled — *"Nubank R$ 260 — Meu 250
+  · Casa 10"*.
+- **Upcoming months** strip on Home with what is already scheduled for the next
+  6 months, payable and receivable. Not an estimate: it comes from fixed bills
+  and instalments already posted.
 
-- **Da casa** (padrão) — a conta que é dos dois
-- **Você** ou **a outra pessoa** — dá para lançar o gasto dela, e ela pode lançar o seu. A atribuição sincroniza junto
+### Fixed
 
-Na Home, os chips `Tudo · Casa · <nomes>` recortam a lista e cada linha ganhou um selo dizendo de quem é. **Só a Empresa continua separada.**
+- Notifications did not cover household entries — since "household" became the
+  default, that silenced nearly every due-date alert.
+- Recurring expenses and household categories had no screen in Settings.
+- CSV/JSON/PDF export only carried the personal bucket, leaving out the household.
+- History rows overflowed on narrow screens.
 
-> As pessoas aparecem no seletor conforme cada uma abre o app pela primeira vez nesta versão — é nesse momento que o nome é publicado na Casa.
+### Changed
 
-### 💳 Cartão é único, não por contexto
+- Database at schema version 17 (migrated automatically).
 
-Cadastrou um cartão, ele serve para pessoal, casa e empresa. O que continua separado é o **gasto**: usar o mesmo Nubank R$ 250 no pessoal e R$ 10 na casa soma certo em cada filtro.
+## [1.1.0-beta] - 2026-07-09
 
-Nova aba **Cartões** (dentro de Análise): tudo que passou em cada cartão, com a proporção de cada contexto e o item a item rotulado — *"Nubank R$ 260 — Meu 250 · Casa 10"*.
+### Added
 
-### 📅 Próximos meses
+- **Bus tab**: a transit card balance that **debits itself** on routine days,
+  with off-routine trips logged by hand.
+- **Recurring expenses created from the entry modal** ("repeat every month",
+  with an end date).
+- **Pending entries**: credit purchases, recurring occurrences and future
+  instalments only count towards the balance once marked paid — with payable,
+  receivable and an **overdue** state.
+- **Multi-context analysis** (combinable Personal/Business chips), tappable pie
+  slices and automatic monthly insights.
+- **Due-date reminders three times a day** (morning, afternoon, evening), plus
+  MEI ceiling, DAS tax and budget alerts.
+- **Home-screen widget**, search across every month, per-category budgets and a
+  period selector for exports.
+- **Receipts and invoices** attached to entries (images converted to PDF), with
+  Google Drive backup.
 
-Faixa nova na Home com o que **já está agendado** para os próximos 6 meses (a pagar e a receber). Não é estimativa: sai das contas fixas e parcelas já lançadas. Toque num mês para abrir o histórico dele.
+### Security
 
-### 🔧 Correções e ajustes
+- Hardened the Firestore rules around invites, joining a house and author-only
+  editing.
 
-- Notificações passaram a cobrir os lançamentos da Casa — como "da casa" virou o padrão, sem isso quase nenhum aviso de vencimento disparava
-- Gastos frequentes e categorias da Casa voltaram a ter tela nas Configurações
-- Export (CSV/JSON/PDF) agora leva pessoal e casa, não só o pessoal
-- Linha do histórico não estoura mais em tela estreita
-- Banco na versão 17 (migração automática)
+## [1.0.0] - 2026-07-06
 
----
+### Added
 
-## 1.1.0 (beta)
+- First release: entries with a Brazilian currency mask, categories, a dashboard
+  with balance/income/expenses, charts in plain Canvas, usage profiles (personal,
+  MEI, company), CSV/JSON/PDF export with deduplicated import, automatic weekly
+  backups, and the **shared household** with Google sign-in and real-time
+  Firestore sync.
 
-- **Aba Ônibus**: saldo do cartão de transporte que **desconta sozinho** nos dias de rotina, com viagens fora da rotina lançadas à mão
-- **Gastos frequentes** criados direto no modal de lançamento ("Repetir todo mês", com "dura até")
-- **Pendências**: compra no crédito, ocorrência recorrente e parcela futura só entram no saldo quando marcadas como pagas — com "A pagar", "A receber" e o estado **Atrasado**
-- **Análise multi-contexto** (chips Pessoal/Empresa combináveis), pizza clicável e insights automáticos do mês
-- **Lembretes de vencimento 3x por dia** (manhã/tarde/noite), limite do MEI, DAS e orçamento estourando
-- **Widget** de lançamento rápido, busca em todos os meses, orçamentos por categoria e export com seletor de período
-- **Notas fiscais e comprovantes** anexados ao lançamento (imagem vira PDF), com backup no Google Drive
-- Endurecimento das regras do Firestore (convite, entrada na casa, guard de autor)
-
----
-
-## 1.0.0
-
-Primeira versão: lançamentos com máscara de moeda BR, categorias, dashboard com saldo/ganhos/gastos, gráficos em Canvas puro, perfis (Pessoa Física / MEI / CNPJ), export CSV/JSON/PDF com import deduplicado, backup automático semanal, **Casa compartilhada** com login Google e sync em tempo real via Firestore.
+[1.3.0]: https://github.com/DionathaGoulart/goodfinances/releases/tag/v1.3.0
+[1.2.0-beta]: https://github.com/DionathaGoulart/goodfinances/releases/tag/v1.2.0-beta
+[1.1.0-beta]: https://github.com/DionathaGoulart/goodfinances/releases/tag/v1.1.0-beta
+[1.0.0]: https://github.com/DionathaGoulart/goodfinances/releases/tag/v1.0.0

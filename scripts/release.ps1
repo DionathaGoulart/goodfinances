@@ -1,12 +1,14 @@
-# Publica uma versão nova no GitHub Releases.
-# O app instalado detecta a release sozinho (checagem diária) e oferece o download.
+# Publishes a new version to GitHub Releases (Windows).
+# The installed app finds the release on its own (checked once a day) and offers
+# a one-tap update. See docs/release.md for the full contract.
 #
-# Uso:
-#   1. Atualize versionCode e versionName em app/build.gradle.kts
-#   2. Commite tudo
-#   3. .\scripts\release.ps1 -Versao 1.1.0 -Notas "O que mudou nesta versão"
+# Usage:
+#   1. Bump versionCode and versionName in app/build.gradle.kts
+#   2. Commit everything
+#   3. .\scripts\release.ps1 -Versao 1.3.0 -Notas "What changed in this version"
 #
-# Requisitos: gh CLI autenticado (gh auth login) e key.properties/finapp-release.jks na raiz.
+# Requires: an authenticated gh CLI (gh auth login) and key.properties plus
+# finapp-release.jks in the repository root.
 
 param(
     [Parameter(Mandatory = $true)][string]$Versao,
@@ -15,16 +17,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Confere se o versionName do build bate com a versão pedida
+# The app only compares X.Y.Z, so a suffix such as "-beta" would tie with the
+# stable release and never notify anyone on the beta.
+if ($Versao -notmatch '^\d+\.\d+\.\d+$') {
+    Write-Host "ERROR: version must be X.Y.Z with no suffix." -ForegroundColor Red
+    exit 1
+}
+
+# Make sure the build's versionName matches the requested version
 $gradle = Get-Content app\build.gradle.kts -Raw
 if ($gradle -notmatch [regex]::Escape("versionName = `"$Versao`"")) {
-    Write-Host "ERRO: versionName em app/build.gradle.kts nao e $Versao." -ForegroundColor Red
-    Write-Host "Atualize versionCode e versionName antes de publicar." -ForegroundColor Red
+    Write-Host "ERROR: versionName in app/build.gradle.kts is not $Versao." -ForegroundColor Red
+    Write-Host "Bump versionCode and versionName before publishing." -ForegroundColor Red
     exit 1
 }
 
 $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-.\gradlew.bat assembleRelease
+.\gradlew.bat testDebugUnitTest assembleRelease
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
 $apk = "GoodFinances-$Versao.apk"
@@ -34,8 +43,8 @@ git push origin main
 git tag "v$Versao"
 git push origin "v$Versao"
 
-# --latest e a AUSENCIA de --prerelease/--draft sao obrigatorios: o app consulta
-# /releases/latest, que ignora rascunhos e pre-releases (ver docs/release.md).
+# --latest, and the absence of --prerelease/--draft, are mandatory: the app
+# queries /releases/latest, which ignores drafts and pre-releases.
 if ($Notas -eq "") {
     gh release create "v$Versao" $apk --title "GoodFinances $Versao" --generate-notes --latest
 } else {
@@ -44,4 +53,4 @@ if ($Notas -eq "") {
 
 Remove-Item $apk
 Write-Host ""
-Write-Host "Release v$Versao publicada! Os apps instalados vao avisar da atualizacao." -ForegroundColor Green
+Write-Host "Release v$Versao published. Installed apps will prompt when Home opens." -ForegroundColor Green
