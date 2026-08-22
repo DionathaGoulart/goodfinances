@@ -105,6 +105,10 @@ fun FinanApp(
     // Estado do botão + central (ações rápidas) e dos diálogos que ele abre
     val perfilDados by transacaoViewModel.perfil.collectAsStateWithLifecycle()
     val contextos by transacaoViewModel.contextos.collectAsStateWithLifecycle()
+    // Numa casa a transferência pode mexer no dinheiro COMUM (padrão) ou ficar
+    // no balde privado — a escolha é do diálogo
+    val podeUsarDinheiroDaCasa by transacaoViewModel.podeUsarDinheiroDaCasa
+        .collectAsStateWithLifecycle()
     var menuAcoesAberto by remember { mutableStateOf(false) }
     // Modal de nova transação hospedado aqui (funciona de qualquer aba)
     var modalTipo by remember { mutableStateOf<TipoTransacao?>(null) }
@@ -203,7 +207,15 @@ fun FinanApp(
         TransferenciaDialog(
             origem = perfilDados,
             destinos = contextos - perfilDados,
-            onTransferir = transacaoViewModel::transferir,
+            temCasa = podeUsarDinheiroDaCasa,
+            onTransferir = { destino, valor, descricao, daCasa ->
+                transacaoViewModel.transferir(
+                    destino = destino,
+                    valorCentavos = valor,
+                    descricao = descricao,
+                    usarDinheiroDaCasa = daCasa
+                )
+            },
             onFechar = { transferenciaAberta = false }
         )
     }

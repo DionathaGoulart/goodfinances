@@ -48,6 +48,17 @@ class TransacaoViewModel @Inject constructor(
     /** Abas/contextos disponíveis (Pessoal/Empresa) — destino da transferência. */
     val contextos: StateFlow<List<Perfil>> = perfilManager.contextosDisponiveis
 
+    /**
+     * Numa casa a transferência pode sair (ou entrar) no dinheiro COMUM em vez
+     * do bolso privado — é a escolha oferecida no diálogo. Vem da casa em si,
+     * não de [baldesFinanceiros]: na aba Empresa a Casa não é um balde
+     * financeiro, mas continua sendo um destino válido do pró-labore.
+     */
+    val podeUsarDinheiroDaCasa: StateFlow<Boolean> =
+        casaManager.casa
+            .map { it != null }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     /** Baldes financeiros do contexto — origem das listas do modal. */
     private val baldes: StateFlow<List<Perfil>> = perfilManager.baldesFinanceiros
 
@@ -301,6 +312,7 @@ class TransacaoViewModel @Inject constructor(
         destino: Perfil,
         valorCentavos: Long,
         descricao: String,
+        usarDinheiroDaCasa: Boolean = true,
         data: LocalDate = LocalDate.now()
     ) {
         val origem = perfil.value
@@ -312,6 +324,21 @@ class TransacaoViewModel @Inject constructor(
             emitir("Escolha um destino diferente da origem")
             return
         }
+        // Numa casa o lado pessoal costuma ser o dinheiro COMUM: as pernas
+        // gravam no balde compartilhado, como QUALQUER outro lançamento
+        // (mesma regra do baldeDe) — no balde privado o outro membro nunca
+        // veria o dinheiro sair do bolo, que é justamente o que ele precisa
+        // ver. [usarDinheiroDaCasa] = false é a exceção deliberada (dinheiro
+        // que é só meu, ex: um pró-labore que não entra no bolo): aí a perna
+        // pessoal fica no balde privado e os outros membros não veem.
+        // O lado empresa ignora a escolha — empresa nunca mistura com a casa.
+        val baldeOrigem = if (usarDinheiroDaCasa) perfilManager.baldeDeContexto(origem) else origem
+        val baldeDestino =
+            if (usarDinheiroDaCasa) perfilManager.baldeDeContexto(destino) else destino
+        if (baldeOrigem == baldeDestino) {
+            emitir("Os dois contextos usam a mesma carteira")
+            return
+        }
         viewModelScope.launch {
             val nomeAutor = casaManager.usuario.value?.nome.orEmpty()
             val uidAutor = casaManager.usuario.value?.uid.orEmpty()
@@ -319,17 +346,17 @@ class TransacaoViewModel @Inject constructor(
             // Mesmo id nas duas pernas: deletar uma deleta a outra
             val vinculo = UUID.randomUUID().toString()
             runCatching {
-                repository.garantirCategoriaTransferencia(origem, destino)
+                repository.garantirCategoriaTransferencia(baldeOrigem, baldeDestino)
                 repository.inserirTransacao(
                     Transacao(
                         valor = valorCentavos,
                         tipo = TipoTransacao.GASTO,
                         categoria = FinanceRepository.NOME_TRANSFERENCIA,
-                        descricao = juntar("Para ${destino.rotulo}", detalhe),
+                        descricao = juntar("Para ${baldeDestino.rotulo}", detalhe),
                         data = data,
-                        perfil = origem,
-                        criadoPor = if (origem == Perfil.CASA) nomeAutor else "",
-                        criadoPorUid = if (origem == Perfil.CASA) uidAutor else "",
+                        perfil = baldeOrigem,
+                        criadoPor = if (baldeOrigem == Perfil.CASA) nomeAutor else "",
+                        criadoPorUid = if (baldeOrigem == Perfil.CASA) uidAutor else "",
                         transferenciaId = vinculo
                     )
                 )
@@ -338,17 +365,17 @@ class TransacaoViewModel @Inject constructor(
                         valor = valorCentavos,
                         tipo = TipoTransacao.GANHO,
                         categoria = FinanceRepository.NOME_TRANSFERENCIA,
-                        descricao = juntar("De ${origem.rotulo}", detalhe),
+                        descricao = juntar("De ${baldeOrigem.rotulo}", detalhe),
                         data = data,
-                        perfil = destino,
-                        criadoPor = if (destino == Perfil.CASA) nomeAutor else "",
-                        criadoPorUid = if (destino == Perfil.CASA) uidAutor else "",
+                        perfil = baldeDestino,
+                        criadoPor = if (baldeDestino == Perfil.CASA) nomeAutor else "",
+                        criadoPorUid = if (baldeDestino == Perfil.CASA) uidAutor else "",
                         transferenciaId = vinculo
                     )
                 )
             }
                 .onSuccess {
-                    emitir("Transferido de ${origem.rotulo} para ${destino.rotulo}")
+                    emitir("Transferido de ${baldeOrigem.rotulo} para ${baldeDestino.rotulo}")
                 }
                 .onFailure { emitir("Erro ao transferir") }
         }

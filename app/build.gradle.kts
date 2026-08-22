@@ -29,8 +29,8 @@ android {
         // .ehMaisNova faz split('.') + toIntOrNull, então "1.3.0-beta" viraria
         // [1,3,0] e empataria com o 1.3.0 final — quem estivesse no beta nunca
         // receberia o aviso da versão estável.
-        versionCode = 11
-        versionName = "1.3.0"
+        versionCode = 12
+        versionName = "1.3.1"
     }
 
     signingConfigs {

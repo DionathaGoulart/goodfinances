@@ -128,12 +128,17 @@ class PerfilManager @Inject constructor(
      * a outra pessoa nunca veria). Fora de uma casa, tudo é privado.
      */
     @Suppress("UNUSED_PARAMETER")
-    fun baldeDe(dono: Dono): Perfil {
-        val contexto = _perfilDados.value
-        // Na empresa o "de quem" não se aplica: é sempre da empresa
-        if (contexto.ehEmpresa) return contexto
-        return if (temCasa) Perfil.CASA else contexto
-    }
+    fun baldeDe(dono: Dono): Perfil = baldeDeContexto(_perfilDados.value)
+
+    /**
+     * Balde de escrita de um contexto QUALQUER (não só o ativo) — a
+     * transferência precisa resolver os DOIS lados. Mesma regra do
+     * [baldeDe]: numa casa o lado pessoal É o dinheiro comum, então é de lá
+     * que o dinheiro sai e é para lá que ele volta. Na empresa o "de quem"
+     * não se aplica: é sempre da empresa.
+     */
+    fun baldeDeContexto(contexto: Perfil): Perfil =
+        if (contexto.ehEmpresa || !temCasa) contexto else Perfil.CASA
 
     /**
      * Balde onde nascem as entidades GLOBAIS (hoje: cartões). Sempre o lado

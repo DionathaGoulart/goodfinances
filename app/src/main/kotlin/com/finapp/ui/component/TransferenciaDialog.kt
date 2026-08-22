@@ -24,27 +24,50 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.finapp.data.db.entities.Perfil
+import com.finapp.data.db.entities.ehEmpresa
 import com.finapp.utils.Formatadores
 
 /**
  * Transferir dinheiro do contexto atual para outro (Pessoal / Empresa / Casa).
  * Vira uma saída na origem e uma entrada no destino ("Transferência").
+ *
+ * [origem] é o contexto ATIVO (o balde privado da aba). Numa casa
+ * ([temCasa]) o lado pessoal da transferência é, por padrão, o dinheiro
+ * COMUM — é o que os dois membros veem mexer. "Meu" é a exceção: mantém a
+ * perna pessoal no balde privado, invisível para os outros.
  */
 @Composable
 fun TransferenciaDialog(
     origem: Perfil,
     destinos: List<Perfil>,
-    onTransferir: (destino: Perfil, valorCentavos: Long, descricao: String) -> Unit,
+    temCasa: Boolean,
+    onTransferir: (
+        destino: Perfil,
+        valorCentavos: Long,
+        descricao: String,
+        usarDinheiroDaCasa: Boolean
+    ) -> Unit,
     onFechar: () -> Unit
 ) {
     var destino by remember { mutableStateOf(destinos.firstOrNull()) }
     var digitos by remember { mutableStateOf("") }
     var descricao by remember { mutableStateOf("") }
     var erroValor by remember { mutableStateOf<String?>(null) }
+    // Padrão = dinheiro comum, igual a todo lançamento numa casa
+    var daCasa by remember { mutableStateOf(true) }
+
+    // Só há o que escolher se a casa existe e um dos lados é o pessoal
+    // (entre empresa e empresa a casa não entra)
+    val temLadoPessoal = !origem.ehEmpresa || destino?.ehEmpresa == false
+    val podeEscolher = temCasa && temLadoPessoal
+    // Exibição: quando a escolha é "da casa", a perna pessoal vira a Casa
+    fun exibir(lado: Perfil) =
+        if (podeEscolher && daCasa && !lado.ehEmpresa) Perfil.CASA else lado
+    val origemExibida = exibir(origem)
 
     AlertDialog(
         onDismissRequest = onFechar,
-        title = { Text("Transferir de ${origem.rotulo}") },
+        title = { Text("Transferir de ${origemExibida.rotulo}") },
         text = {
             Column {
                 Text(
@@ -58,7 +81,35 @@ fun TransferenciaDialog(
                         FilterChip(
                             selected = destino == opcao,
                             onClick = { destino = opcao },
-                            label = { Text(opcao.rotulo) }
+                            // Rótulo do balde REAL: com "da casa" escolhido,
+                            // o lado pessoal é a Casa, não o bolso privado
+                            label = { Text(exibir(opcao).rotulo) }
+                        )
+                    }
+                }
+
+                if (podeEscolher) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = if (!origem.ehEmpresa) {
+                            "Sai de qual dinheiro?"
+                        } else {
+                            "Entra em qual dinheiro?"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = daCasa,
+                            onClick = { daCasa = true },
+                            label = { Text("Da casa") }
+                        )
+                        FilterChip(
+                            selected = !daCasa,
+                            onClick = { daCasa = false },
+                            label = { Text("Meu") }
                         )
                     }
                 }
@@ -95,11 +146,26 @@ fun TransferenciaDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Sai como gasto de ${origem.rotulo} e entra como ganho " +
-                        "no destino, na categoria \"Transferência\".",
+                    text = "Sai como gasto de ${origemExibida.rotulo} e entra como " +
+                        "ganho em ${destino?.let { exibir(it).rotulo } ?: "outro contexto"}, " +
+                        "na categoria \"Transferência\".",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                // O dinheiro da casa é dos dois: quem não fez a transferência
+                // precisa saber se vai ver (ou não) o bolo comum mexer
+                if (podeEscolher) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (daCasa) {
+                            "Mexe no dinheiro comum da casa — os outros membros veem."
+                        } else {
+                            "Fica no seu dinheiro à parte — os outros membros não veem."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         },
         confirmButton = {
@@ -110,7 +176,7 @@ fun TransferenciaDialog(
                     if (valor <= 0L) {
                         erroValor = "Informe um valor maior que zero"
                     } else if (alvo != null) {
-                        onTransferir(alvo, valor, descricao)
+                        onTransferir(alvo, valor, descricao, podeEscolher && daCasa)
                         onFechar()
                     }
                 }

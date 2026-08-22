@@ -7,6 +7,25 @@ All notable changes to this project are documented here. The format follows
 The app checks for new releases once a day and offers the update with a single
 tap. Publishing a release is described in [docs/release.md](docs/release.md).
 
+## [1.3.1] - 2026-08-22
+
+### Fixed
+
+- **A transfer made inside a household now comes out of the shared money.** It
+  used to be written to the private bucket of the active tab, so the other
+  member's phone never saw the deduction — even though the household balance on
+  screen mixes both. Both legs now resolve through the same rule as every other
+  entry (`PerfilManager.baldeDeContexto`), so the outgoing leg lands in the
+  household wallet and syncs to everyone. The dialog says so explicitly.
+
+### Added
+
+- **Choose whether a transfer touches the shared money.** Inside a household
+  the transfer dialog now offers *Da casa* (default — the leg lands in the
+  shared wallet and every member sees it) or *Meu* (the leg stays in your
+  private bucket, invisible to the others). Useful for a pro-labore that is
+  not meant to go into the common pot. Outside a household nothing changes.
+
 ## [1.3.0] - 2026-08-16
 
 First **stable** release of the batch that started in 1.2.0-beta: personal and
